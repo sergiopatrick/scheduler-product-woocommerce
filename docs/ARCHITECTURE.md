@@ -8,7 +8,8 @@
 - `RevisionPostType`
   - Registra o CPT `sanar_product_revision` e seus metadados.
 - `ProductMetaBox`
-  - UI de agendamento na tela de produto.
+  - UI de agendamento dentro do box "Publicar/Atualizar".
+  - Intercepta o salvamento para impedir vazamento no produto pai.
 - `RevisionAdmin`
   - Lista de revisoes, colunas, filtros e acoes.
 - `RevisionManager`
@@ -22,16 +23,15 @@
 
 ## Templates e Assets
 
-- `templates/metabox-schedule.php`: UI do metabox de agendamento.
 - `templates/admin-revisions-list.php`: aviso contextual na listagem.
 - `assets/css/admin.css`: estilos minimos.
-- `assets/js/admin.js`: placeholder para melhorias futuras.
+- `assets/js/admin.js`: coleta payload e ajustes de UI.
 
 ## Fluxo (texto)
 
-1. Usuario abre um produto e agenda atualizacao.
-2. O plugin captura os dados da tela atual (mesmo sem salvar) e monta uma revisao.
-3. Caso algum dado nao esteja no POST, o fallback e o valor atual do produto pai no banco.
+1. Usuario define uma data/hora futura no box "Publicar" e clica em "Atualizar".
+2. `wp_insert_post_data` reverte `post_title/post_content/post_excerpt` para os valores atuais e captura um snapshot do produto pai.
+3. `save_post_product` restaura metas/taxonomias para evitar vazamento e cria uma revisao com o payload do POST.
 4. A revisao recebe status `scheduled` e o horario em UTC.
 5. WP-Cron executa `sanar_wcps_publish_revision` no horario.
 6. `RevisionManager` valida, aplica atualizacao atomica e marca `published`.
@@ -57,11 +57,12 @@
 - Lock por `product_id` para evitar corrida
   - Lock armazenado em options com TTL de 10 minutos
 
-## Agendamento sem salvar o produto
+## Reverter pai + salvar revisao
 
-- O metabox envia o formulario atual completo via `admin-post.php`.
-- Os campos do POST sao priorizados para montar a revisao.
-- O produto pai nunca e salvo nesse fluxo, garantindo que as alteracoes nao vazem antes do horario.
+- O agendamento acontece no mesmo fluxo de "Atualizar".
+- `wp_insert_post_data` força os campos do post pai a permanecerem iguais ao banco.
+- No fim do request, metas e taxonomias sao restauradas a partir do snapshot.
+- A revisao e criada a partir do payload do POST, garantindo que o produto pai nao seja alterado.
 
 ## Dependencias
 

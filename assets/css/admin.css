@@ -9,3 +9,15 @@
 .sanar-wcps-notice {
     border-left-color: #2271b1;
 }
+
+.sanar-wcps-publish-section .sanar-wcps-field {
+    margin-top: 4px;
+}
+
+.sanar-wcps-next {
+    margin-top: 6px;
+}
+
+.sanar-wcps-cancel {
+    margin-top: 4px;
+}

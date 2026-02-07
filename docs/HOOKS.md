@@ -13,11 +13,6 @@ Use estes hooks para integracoes (cache, notificacoes, observabilidade).
 - `sanar_wcps_cache_purge( int $product_id, int $revision_id )`
   - Disparado para integracoes de purge de cache/CDN.
 
-## Admin Actions
-
-- `admin_post_sanar_wcps_schedule_update`
-  - Endpoint do admin-post usado para criar a revisao e agendar a publicacao.
-
 ## Filters
 
 - `sanar_wcps_protected_meta_keys( array $keys ) : array`

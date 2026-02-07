@@ -9,177 +9,153 @@ use Sanar\WCProductScheduler\Scheduler\Scheduler;
 use Sanar\WCProductScheduler\Util\Logger;
 
 class ProductMetaBox {
+    private static ?array $schedule_request = null;
+    private static ?array $snapshot = null;
+    private static int $snapshot_post_id = 0;
+    private static ?array $redirect_args = null;
+    private static bool $is_handling = false;
+
     public static function init(): void {
-        add_action( 'add_meta_boxes_product', [ __CLASS__, 'register_meta_box' ] );
+        add_action( 'post_submitbox_misc_actions', [ __CLASS__, 'render_publish_box' ] );
+        add_filter( 'wp_insert_post_data', [ __CLASS__, 'intercept_post_data' ], 10, 2 );
+        add_action( 'save_post_product', [ __CLASS__, 'handle_product_save' ], 1000, 3 );
+        add_filter( 'redirect_post_location', [ __CLASS__, 'redirect_post_location' ], 10, 2 );
         add_action( 'admin_notices', [ __CLASS__, 'admin_notices' ] );
-        add_action( 'admin_footer', [ __CLASS__, 'render_schedule_form' ] );
     }
 
-    public static function handle_schedule(): void {
-        self::handle_schedule_update();
-    }
-
-    public static function register_meta_box(): void {
-        add_meta_box(
-            'sanar-wcps-schedule',
-            __( 'Agendar atualizacao', 'sanar-wc-product-scheduler' ),
-            [ __CLASS__, 'render_meta_box' ],
-            'product',
-            'side',
-            'high'
-        );
-    }
-
-    public static function render_meta_box( $post ): void {
-        $timezone = wp_timezone_string();
-        $next = self::get_next_scheduled_revision( $post->ID );
-        $template = SANAR_WCPS_PATH . 'templates/metabox-schedule.php';
-        if ( file_exists( $template ) ) {
-            require $template;
+    public static function render_publish_box( \WP_Post $post ): void {
+        if ( $post->post_type !== 'product' ) {
             return;
         }
 
-        echo '<p>' . esc_html__( 'Template nao encontrado.', 'sanar-wc-product-scheduler' ) . '</p>';
+        $timezone = wp_timezone_string();
+        $next = self::get_next_scheduled_revision( $post->ID );
+
+        echo '<div class="misc-pub-section sanar-wcps-publish-section">';
+        echo '<label for="sanar_wcps_schedule_datetime"><strong>' . esc_html__( 'Agendar atualizacao', 'sanar-wc-product-scheduler' ) . '</strong></label>';
+        echo '<input type="datetime-local" id="sanar_wcps_schedule_datetime" name="sanar_wcps_schedule_datetime" class="sanar-wcps-field" value="">';
+        echo '<p class="description">' . esc_html__( 'Timezone:', 'sanar-wc-product-scheduler' ) . ' ' . esc_html( $timezone ) . '</p>';
+
+        if ( $next ) {
+            echo '<p class="description sanar-wcps-next">' . esc_html__( 'Atualizacao agendada para:', 'sanar-wc-product-scheduler' ) . ' ' . esc_html( $next['local'] ) . '</p>';
+
+            $nonce = wp_create_nonce( 'sanar_wcps_revision_action_' . $next['id'] );
+            $cancel_url = add_query_arg( [
+                'action' => 'sanar_wcps_cancel_revision',
+                'revision_id' => $next['id'],
+                '_wpnonce' => $nonce,
+            ], admin_url( 'admin-post.php' ) );
+
+            echo '<p><a class="button sanar-wcps-cancel" href="' . esc_url( $cancel_url ) . '">' . esc_html__( 'Cancelar agendamento', 'sanar-wc-product-scheduler' ) . '</a></p>';
+        }
+
+        echo '</div>';
     }
 
-    public static function handle_schedule_update(): void {
-        $nonce = isset( $_POST['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_POST['_wpnonce'] ) ) : '';
-        if ( ! wp_verify_nonce( $nonce, 'sanar_wcps_schedule_update' ) ) {
-            wp_die( 'Nonce invalida.' );
+    public static function intercept_post_data( array $data, array $postarr ): array {
+        if ( self::$is_handling ) {
+            return $data;
         }
 
-        $product_id = isset( $_POST['product_id'] ) ? (int) $_POST['product_id'] : 0;
-        if ( ! $product_id || ! current_user_can( 'edit_post', $product_id ) ) {
-            wp_die( 'Permissao insuficiente.' );
+        if ( ! self::is_schedule_request( $postarr ) ) {
+            return $data;
         }
 
-        $product_post = get_post( $product_id );
-        if ( ! $product_post || $product_post->post_type !== 'product' ) {
-            wp_die( 'Produto invalido.' );
+        $post_id = (int) $postarr['ID'];
+        $post = get_post( $post_id );
+        if ( ! $post ) {
+            return $data;
         }
 
-        $redirect = get_edit_post_link( $product_id, 'url' );
-        if ( ! $redirect ) {
-            $redirect = admin_url( 'edit.php?post_type=product' );
+        self::$schedule_request = [
+            'post_id' => $post_id,
+            'datetime' => self::get_schedule_datetime(),
+            'payload' => self::extract_payload(),
+        ];
+
+        if ( self::$snapshot_post_id !== $post_id ) {
+            self::$snapshot = RevisionManager::snapshot_product( $post_id );
+            self::$snapshot_post_id = $post_id;
         }
 
-        $datetime = isset( $_POST['sanar_wcps_datetime'] ) ? sanitize_text_field( wp_unslash( $_POST['sanar_wcps_datetime'] ) ) : '';
-        $timezone = isset( $_POST['sanar_wcps_tz'] ) ? sanitize_text_field( wp_unslash( $_POST['sanar_wcps_tz'] ) ) : '';
-        $payload_raw = isset( $_POST['sanar_wcps_payload'] ) ? wp_unslash( $_POST['sanar_wcps_payload'] ) : '';
-        $payload = self::parse_payload( $payload_raw );
-        if ( $timezone === '' ) {
-            $timezone = wp_timezone_string();
+        $data['post_title'] = $post->post_title;
+        $data['post_content'] = $post->post_content;
+        $data['post_excerpt'] = $post->post_excerpt;
+
+        if ( isset( $data['post_name'] ) ) {
+            $data['post_name'] = $post->post_name;
         }
 
-        if ( $datetime === '' ) {
-            wp_safe_redirect( add_query_arg( 'sanar_wcps_notice', 'schedule_failed', $redirect ) );
-            exit;
+        if ( isset( $data['post_status'] ) ) {
+            $data['post_status'] = $post->post_status;
         }
 
-        if ( ! post_type_exists( Plugin::CPT ) ) {
-            RevisionPostType::register();
-            RevisionPostType::register_meta();
+        if ( isset( $data['post_modified'] ) ) {
+            $data['post_modified'] = $post->post_modified;
         }
 
-        if ( ! post_type_exists( Plugin::CPT ) ) {
-            Logger::log_system_event( 'cpt_missing', [
-                'product_id' => $product_id,
-                'post_type_exists' => false,
-                'class_exists' => class_exists( RevisionPostType::class ),
-                'did_plugins_loaded' => did_action( 'plugins_loaded' ),
-                'did_init' => did_action( 'init' ),
-            ] );
-
-            $redirect = add_query_arg( [
-                'sanar_wcps_notice' => 'create_failed',
-                'sanar_wcps_error' => rawurlencode( 'CPT nao registrado. Plugin carregou? Veja debug log.' ),
-            ], $redirect );
-            wp_safe_redirect( $redirect );
-            exit;
+        if ( isset( $data['post_modified_gmt'] ) ) {
+            $data['post_modified_gmt'] = $post->post_modified_gmt;
         }
 
-        Logger::info( 'Handler called', [
-            'post_type_exists' => post_type_exists( Plugin::CPT ),
-        ] );
+        return $data;
+    }
 
-        if ( ! function_exists( 'wc_get_product' ) ) {
-            wp_safe_redirect( add_query_arg( 'sanar_wcps_notice', 'invalid_product', $redirect ) );
-            exit;
+    public static function handle_product_save( int $post_id, \WP_Post $post, bool $update ): void {
+        if ( self::$is_handling ) {
+            return;
         }
 
-        $product = wc_get_product( $product_id );
-        if ( ! $product ) {
-            wp_safe_redirect( add_query_arg( 'sanar_wcps_notice', 'invalid_product', $redirect ) );
-            exit;
+        if ( ! $update ) {
+            return;
         }
 
-        if ( $product->is_type( 'variable' ) ) {
-            wp_safe_redirect( add_query_arg( 'sanar_wcps_notice', 'variable_blocked', $redirect ) );
-            exit;
+        if ( $post->post_type !== 'product' ) {
+            return;
         }
 
-        $revision_id = 0;
+        if ( RevisionManager::is_processing() ) {
+            return;
+        }
+
+        if ( ! self::$schedule_request || (int) self::$schedule_request['post_id'] !== $post_id ) {
+            return;
+        }
+
+        if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
+            return;
+        }
+
+        if ( wp_is_post_autosave( $post_id ) || wp_is_post_revision( $post_id ) ) {
+            return;
+        }
+
+        self::$is_handling = true;
+
         try {
-            $utc = Plugin::local_to_utc( $datetime );
+            self::restore_parent_state( $post_id );
+            self::process_schedule( $post_id );
+        } finally {
+            self::$schedule_request = null;
+            self::$snapshot = null;
+            self::$snapshot_post_id = 0;
+            self::$is_handling = false;
+        }
+    }
 
-            if ( $utc['timestamp'] <= time() ) {
-                wp_safe_redirect( add_query_arg( 'sanar_wcps_notice', 'schedule_failed', $redirect ) );
-                exit;
-            }
-
-            $revision_id = RevisionManager::create_revision_from_product( $product_id, $payload );
-            if ( is_wp_error( $revision_id ) ) {
-                $error_message = $revision_id->get_error_message();
-                Logger::log_system_event( 'revision_create_failed', [
-                    'product_id' => $product_id,
-                    'error' => $error_message,
-                ] );
-
-                $redirect = add_query_arg( [
-                    'sanar_wcps_notice' => 'create_failed',
-                    'sanar_wcps_error' => rawurlencode( $error_message ),
-                ], $redirect );
-                wp_safe_redirect( $redirect );
-                exit;
-            }
-
-            if ( RevisionManager::has_schedule_conflict( $product_id, $utc['utc'], $revision_id ) ) {
-                update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_DRAFT );
-                Logger::log_event( $revision_id, 'schedule_conflict', [ 'scheduled_utc' => $utc['utc'] ] );
-                wp_safe_redirect( add_query_arg( 'sanar_wcps_notice', 'schedule_conflict', $redirect ) );
-                exit;
-            }
-
-            $scheduled = Scheduler::schedule_revision( $revision_id, $utc['timestamp'] );
-            if ( ! $scheduled ) {
-                throw new \Exception( 'Falha ao agendar evento WP-Cron.' );
-            }
-            update_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME, $utc['utc'] );
-            update_post_meta( $revision_id, Plugin::META_TIMEZONE, $timezone );
-            update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_SCHEDULED );
-
-            Logger::log_event( $revision_id, 'scheduled', [ 'scheduled_utc' => $utc['utc'] ] );
-        } catch ( \Exception $e ) {
-            if ( isset( $revision_id ) && $revision_id ) {
-                update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_FAILED );
-                Logger::set_error( $revision_id, $e->getMessage() );
-                Logger::log_event( $revision_id, 'failed', [ 'error' => $e->getMessage() ] );
-            }
-            $redirect = add_query_arg( [
-                'sanar_wcps_notice' => 'schedule_failed',
-                'sanar_wcps_error' => rawurlencode( $e->getMessage() ),
-            ], $redirect );
-            wp_safe_redirect( $redirect );
-            exit;
+    public static function redirect_post_location( string $location, int $post_id ): string {
+        if ( empty( self::$redirect_args ) ) {
+            return $location;
         }
 
-        $scheduled_local = Plugin::format_site_datetime( $utc['utc'] );
-        $redirect = add_query_arg( [
-            'sanar_wcps_notice' => 'scheduled',
-            'sanar_wcps_scheduled' => rawurlencode( $scheduled_local ),
-        ], $redirect );
-        wp_safe_redirect( $redirect );
-        exit;
+        if ( (int) ( self::$redirect_args['post_id'] ?? 0 ) !== $post_id ) {
+            return $location;
+        }
+
+        $args = self::$redirect_args;
+        unset( $args['post_id'] );
+
+        return add_query_arg( $args, $location );
     }
 
     public static function admin_notices(): void {
@@ -193,12 +169,18 @@ class ProductMetaBox {
         }
 
         $notice = sanitize_text_field( wp_unslash( $_GET['sanar_wcps_notice'] ) );
-        $error_detail = isset( $_GET['sanar_wcps_error'] ) ? sanitize_text_field( rawurldecode( wp_unslash( $_GET['sanar_wcps_error'] ) ) ) : '';
-        $scheduled = isset( $_GET['sanar_wcps_scheduled'] ) ? sanitize_text_field( rawurldecode( wp_unslash( $_GET['sanar_wcps_scheduled'] ) ) ) : '';
+        $error_detail = isset( $_GET['sanar_wcps_error'] ) ? sanitize_text_field( wp_unslash( $_GET['sanar_wcps_error'] ) ) : '';
+        $scheduled = isset( $_GET['sanar_wcps_scheduled'] ) ? sanitize_text_field( wp_unslash( $_GET['sanar_wcps_scheduled'] ) ) : '';
 
         if ( $notice === 'create_failed' && $error_detail ) {
             $class = 'notice notice-error';
             echo '<div class="' . esc_attr( $class ) . '"><p>' . esc_html( 'Falha ao criar revisao: ' . $error_detail ) . '</p></div>';
+            return;
+        }
+
+        if ( $notice === 'schedule_failed' && $error_detail ) {
+            $class = 'notice notice-error';
+            echo '<div class="' . esc_attr( $class ) . '"><p>' . esc_html( 'Falha ao agendar revisao: ' . $error_detail ) . '</p></div>';
             return;
         }
 
@@ -215,6 +197,7 @@ class ProductMetaBox {
             'schedule_failed' => [ 'error', 'Falha ao agendar revisao.' ],
             'schedule_conflict' => [ 'error', 'Ja existe uma revisao agendada para este horario.' ],
             'scheduled' => [ 'success', 'Revisao agendada.' ],
+            'cancelled' => [ 'success', 'Revisao cancelada.' ],
         ];
 
         if ( ! isset( $messages[ $notice ] ) ) {
@@ -225,7 +208,214 @@ class ProductMetaBox {
         echo '<div class="' . esc_attr( $class ) . '"><p>' . esc_html( $messages[ $notice ][1] ) . '</p></div>';
     }
 
-    private static function get_next_scheduled_revision( int $product_id ): ?string {
+    private static function is_schedule_request( array $postarr ): bool {
+        if ( empty( $postarr['ID'] ) ) {
+            return false;
+        }
+
+        $post_id = (int) $postarr['ID'];
+        if ( $post_id <= 0 ) {
+            return false;
+        }
+
+        $post_type = $postarr['post_type'] ?? get_post_type( $post_id );
+        if ( $post_type !== 'product' ) {
+            return false;
+        }
+
+        if ( ! current_user_can( 'edit_post', $post_id ) ) {
+            return false;
+        }
+
+        $datetime = self::get_schedule_datetime();
+        if ( $datetime === '' ) {
+            return false;
+        }
+
+        if ( wp_is_post_autosave( $post_id ) || wp_is_post_revision( $post_id ) ) {
+            return false;
+        }
+
+        if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static function get_schedule_datetime(): string {
+        return isset( $_POST['sanar_wcps_schedule_datetime'] )
+            ? sanitize_text_field( wp_unslash( $_POST['sanar_wcps_schedule_datetime'] ) )
+            : '';
+    }
+
+    private static function extract_payload(): array {
+        $payload_raw = isset( $_POST['sanar_wcps_payload'] ) ? wp_unslash( $_POST['sanar_wcps_payload'] ) : '';
+        $payload = self::parse_payload( $payload_raw );
+
+        if ( empty( $payload ) ) {
+            $payload = $_POST;
+        }
+
+        return is_array( $payload ) ? $payload : [];
+    }
+
+    private static function restore_parent_state( int $post_id ): void {
+        if ( empty( self::$snapshot ) || self::$snapshot_post_id !== $post_id ) {
+            return;
+        }
+
+        $snapshot_meta = $snapshot_terms = [];
+        if ( isset( self::$snapshot['meta'] ) && is_array( self::$snapshot['meta'] ) ) {
+            $snapshot_meta = self::$snapshot['meta'];
+        }
+        if ( isset( self::$snapshot['terms'] ) && is_array( self::$snapshot['terms'] ) ) {
+            $snapshot_terms = self::$snapshot['terms'];
+        }
+
+        $protected = apply_filters( 'sanar_wcps_protected_meta_keys', RevisionManager::default_protected_meta_keys() );
+
+        $current_meta = get_post_meta( $post_id );
+        foreach ( array_keys( $current_meta ) as $key ) {
+            if ( RevisionManager::is_reserved_meta_key( $key ) ) {
+                continue;
+            }
+            if ( in_array( $key, $protected, true ) ) {
+                continue;
+            }
+            delete_post_meta( $post_id, $key );
+        }
+
+        foreach ( $snapshot_meta as $key => $values ) {
+            if ( RevisionManager::is_reserved_meta_key( $key ) ) {
+                continue;
+            }
+            if ( in_array( $key, $protected, true ) ) {
+                continue;
+            }
+            foreach ( $values as $value ) {
+                add_post_meta( $post_id, $key, maybe_unserialize( $value ) );
+            }
+        }
+
+        foreach ( $snapshot_terms as $taxonomy => $term_ids ) {
+            wp_set_object_terms( $post_id, $term_ids, $taxonomy, false );
+        }
+    }
+
+    private static function process_schedule( int $post_id ): void {
+        $datetime = self::$schedule_request['datetime'] ?? '';
+        if ( $datetime === '' ) {
+            return;
+        }
+
+        if ( ! function_exists( 'wc_get_product' ) ) {
+            self::set_notice( $post_id, 'invalid_product' );
+            return;
+        }
+
+        $product = wc_get_product( $post_id );
+        if ( ! $product ) {
+            self::set_notice( $post_id, 'invalid_product' );
+            return;
+        }
+
+        if ( $product->is_type( 'variable' ) ) {
+            self::set_notice( $post_id, 'variable_blocked' );
+            return;
+        }
+
+        try {
+            $utc = Plugin::local_to_utc( $datetime );
+        } catch ( \Exception $e ) {
+            self::set_notice( $post_id, 'schedule_failed', $e->getMessage() );
+            return;
+        }
+
+        if ( $utc['timestamp'] <= time() ) {
+            self::set_notice( $post_id, 'schedule_failed', 'Data/hora precisa ser futura.' );
+            return;
+        }
+
+        if ( ! post_type_exists( Plugin::CPT ) ) {
+            RevisionPostType::register();
+            RevisionPostType::register_meta();
+        }
+
+        if ( ! post_type_exists( Plugin::CPT ) ) {
+            Logger::log_system_event( 'cpt_missing', [
+                'product_id' => $post_id,
+                'post_type_exists' => false,
+                'class_exists' => class_exists( RevisionPostType::class ),
+                'did_plugins_loaded' => did_action( 'plugins_loaded' ),
+                'did_init' => did_action( 'init' ),
+            ] );
+
+            self::set_notice( $post_id, 'create_failed', 'CPT nao registrado. Plugin carregou? Veja debug log.' );
+            return;
+        }
+
+        $payload = self::$schedule_request['payload'] ?? [];
+        if ( ! is_array( $payload ) ) {
+            $payload = [];
+        }
+
+        $revision_id = RevisionManager::create_revision_from_product( $post_id, $payload );
+        if ( is_wp_error( $revision_id ) ) {
+            $error_message = $revision_id->get_error_message();
+            Logger::log_system_event( 'revision_create_failed', [
+                'product_id' => $post_id,
+                'error' => $error_message,
+            ] );
+
+            self::set_notice( $post_id, 'create_failed', $error_message );
+            return;
+        }
+
+        if ( RevisionManager::has_schedule_conflict( $post_id, $utc['utc'], $revision_id ) ) {
+            update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_DRAFT );
+            Logger::log_event( $revision_id, 'schedule_conflict', [ 'scheduled_utc' => $utc['utc'] ] );
+            self::set_notice( $post_id, 'schedule_conflict' );
+            return;
+        }
+
+        $scheduled = Scheduler::schedule_revision( $revision_id, $utc['timestamp'] );
+        if ( ! $scheduled ) {
+            update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_FAILED );
+            Logger::set_error( $revision_id, 'Falha ao agendar evento WP-Cron.' );
+            Logger::log_event( $revision_id, 'failed', [ 'error' => 'Falha ao agendar evento WP-Cron.' ] );
+            self::set_notice( $post_id, 'schedule_failed', 'Falha ao agendar evento WP-Cron.' );
+            return;
+        }
+
+        update_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME, $utc['utc'] );
+        update_post_meta( $revision_id, Plugin::META_TIMEZONE, $utc['timezone'] );
+        update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_SCHEDULED );
+
+        Logger::log_event( $revision_id, 'scheduled', [ 'scheduled_utc' => $utc['utc'] ] );
+
+        $scheduled_local = Plugin::format_site_datetime( $utc['utc'] );
+        self::set_notice( $post_id, 'scheduled', '', $scheduled_local );
+    }
+
+    private static function set_notice( int $post_id, string $notice, string $error_detail = '', string $scheduled = '' ): void {
+        $args = [
+            'post_id' => $post_id,
+            'sanar_wcps_notice' => $notice,
+        ];
+
+        if ( $error_detail !== '' ) {
+            $args['sanar_wcps_error'] = $error_detail;
+        }
+
+        if ( $scheduled !== '' ) {
+            $args['sanar_wcps_scheduled'] = $scheduled;
+        }
+
+        self::$redirect_args = $args;
+    }
+
+    private static function get_next_scheduled_revision( int $product_id ): ?array {
         $query = new \WP_Query( [
             'post_type' => Plugin::CPT,
             'post_status' => 'any',
@@ -260,16 +450,11 @@ class ProductMetaBox {
             return null;
         }
 
-        return Plugin::utc_to_site( $utc );
-    }
-
-    public static function render_schedule_form(): void {
-        $screen = get_current_screen();
-        if ( ! $screen || $screen->post_type !== 'product' ) {
-            return;
-        }
-
-        echo '<form id="sanar_wcps_schedule_form" method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '"></form>';
+        return [
+            'id' => $revision_id,
+            'utc' => $utc,
+            'local' => Plugin::utc_to_site( $utc ),
+        ];
     }
 
     private static function parse_payload( string $payload_raw ): array {

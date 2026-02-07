@@ -80,6 +80,7 @@ class RevisionAdmin {
             Plugin::STATUS_SCHEDULED => 'scheduled',
             Plugin::STATUS_PUBLISHED => 'published',
             Plugin::STATUS_FAILED => 'failed',
+            Plugin::STATUS_CANCELLED => 'cancelled',
         ];
 
         echo '<select name="sanar_wcps_status">';
@@ -276,7 +277,7 @@ class RevisionAdmin {
 
         Scheduler::clear_scheduled_revision( $revision_id );
 
-        update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_DRAFT );
+        update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_CANCELLED );
         delete_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME );
         delete_post_meta( $revision_id, Plugin::META_TIMEZONE );
         Logger::log_event( $revision_id, 'cancelled', [] );

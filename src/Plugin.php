@@ -23,6 +23,7 @@ class Plugin {
     public const STATUS_SCHEDULED = 'scheduled';
     public const STATUS_PUBLISHED = 'published';
     public const STATUS_FAILED = 'failed';
+    public const STATUS_CANCELLED = 'cancelled';
 
     public const ACTION_PUBLISH = 'sanar_wcps_publish_revision';
 
@@ -43,7 +44,6 @@ class Plugin {
             error_log( '[SANAR_WCPS] cpt_registered=' . ( post_type_exists( self::CPT ) ? '1' : '0' ) );
         }
 
-        add_action( 'admin_post_sanar_wcps_schedule_update', [ ProductMetaBox::class, 'handle_schedule' ], 10 );
         ProductMetaBox::init();
         Scheduler::init();
 

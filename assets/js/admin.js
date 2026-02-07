@@ -9,6 +9,7 @@
             return '';
         }
 
+        $postForm.find('input[name="sanar_wcps_payload"]').remove();
         var payload = $postForm.serialize();
 
         if (window.wp && wp.data && typeof wp.data.select === 'function') {
@@ -33,8 +34,33 @@
         return payload;
     }
 
+    function updatePublishLabel() {
+        var $button = $('#publish');
+        if (!$button.length) {
+            return;
+        }
+
+        if (!$button.data('sanar-wcps-label')) {
+            $button.data('sanar-wcps-label', $button.val());
+        }
+
+        var datetime = $('#sanar_wcps_schedule_datetime').val();
+        if (!datetime) {
+            $button.val($button.data('sanar-wcps-label'));
+            return;
+        }
+
+        var scheduledAt = new Date(datetime);
+        if (!isNaN(scheduledAt.getTime()) && scheduledAt.getTime() > Date.now()) {
+            $button.val('Agendar atualizacao');
+            return;
+        }
+
+        $button.val($button.data('sanar-wcps-label'));
+    }
+
     $(function () {
-        $(document).on('submit', '#sanar_wcps_schedule_form', function () {
+        $(document).on('submit', '#post', function () {
             var payload = buildPayload();
             var $form = $(this);
             $form.find('input[name="sanar_wcps_payload"]').remove();
@@ -44,5 +70,8 @@
                 value: payload
             }).appendTo($form);
         });
+
+        $(document).on('input change', '#sanar_wcps_schedule_datetime', updatePublishLabel);
+        updatePublishLabel();
     });
 })(jQuery);
