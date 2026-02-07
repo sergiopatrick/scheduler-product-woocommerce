@@ -18,7 +18,7 @@ class ProductMetaBox {
     public static function init(): void {
         add_action( 'post_submitbox_misc_actions', [ __CLASS__, 'render_publish_box' ] );
         add_filter( 'wp_insert_post_data', [ __CLASS__, 'intercept_post_data' ], 10, 2 );
-        add_action( 'save_post_product', [ __CLASS__, 'handle_product_save' ], 1000, 3 );
+        add_action( 'save_post_product', [ __CLASS__, 'handle_product_save' ], 10000, 3 );
         add_filter( 'redirect_post_location', [ __CLASS__, 'redirect_post_location' ], 10, 2 );
         add_action( 'admin_notices', [ __CLASS__, 'admin_notices' ] );
     }
@@ -106,11 +106,23 @@ class ProductMetaBox {
             return;
         }
 
-        if ( ! $update ) {
+        if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
+            return;
+        }
+
+        if ( wp_is_post_revision( $post_id ) || wp_is_post_autosave( $post_id ) ) {
             return;
         }
 
         if ( $post->post_type !== 'product' ) {
+            return;
+        }
+
+        if ( self::get_schedule_datetime() === '' ) {
+            return;
+        }
+
+        if ( ! $update ) {
             return;
         }
 
@@ -119,21 +131,25 @@ class ProductMetaBox {
         }
 
         if ( ! self::$schedule_request || (int) self::$schedule_request['post_id'] !== $post_id ) {
-            return;
+            self::$schedule_request = [
+                'post_id' => $post_id,
+                'datetime' => self::get_schedule_datetime(),
+                'payload' => self::extract_payload(),
+            ];
+
+            if ( self::$snapshot_post_id !== $post_id ) {
+                self::$snapshot = RevisionManager::snapshot_product( $post_id );
+                self::$snapshot_post_id = $post_id;
+            }
         }
 
-        if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
-            return;
-        }
-
-        if ( wp_is_post_autosave( $post_id ) || wp_is_post_revision( $post_id ) ) {
+        if ( ! self::$schedule_request || (int) self::$schedule_request['post_id'] !== $post_id ) {
             return;
         }
 
         self::$is_handling = true;
 
         try {
-            self::restore_parent_state( $post_id );
             self::process_schedule( $post_id );
         } finally {
             self::$schedule_request = null;
@@ -265,6 +281,22 @@ class ProductMetaBox {
             return;
         }
 
+        $post = get_post( $post_id );
+        if ( $post ) {
+            $needs_restore = $post->post_title !== ( self::$snapshot['post_title'] ?? '' )
+                || $post->post_content !== ( self::$snapshot['post_content'] ?? '' )
+                || $post->post_excerpt !== ( self::$snapshot['post_excerpt'] ?? '' );
+
+            if ( $needs_restore ) {
+                wp_update_post( [
+                    'ID' => $post_id,
+                    'post_title' => self::$snapshot['post_title'] ?? $post->post_title,
+                    'post_content' => self::$snapshot['post_content'] ?? $post->post_content,
+                    'post_excerpt' => self::$snapshot['post_excerpt'] ?? $post->post_excerpt,
+                ] );
+            }
+        }
+
         $snapshot_meta = $snapshot_terms = [];
         if ( isset( self::$snapshot['meta'] ) && is_array( self::$snapshot['meta'] ) ) {
             $snapshot_meta = self::$snapshot['meta'];
@@ -273,14 +305,9 @@ class ProductMetaBox {
             $snapshot_terms = self::$snapshot['terms'];
         }
 
-        $protected = apply_filters( 'sanar_wcps_protected_meta_keys', RevisionManager::default_protected_meta_keys() );
-
         $current_meta = get_post_meta( $post_id );
         foreach ( array_keys( $current_meta ) as $key ) {
             if ( RevisionManager::is_reserved_meta_key( $key ) ) {
-                continue;
-            }
-            if ( in_array( $key, $protected, true ) ) {
                 continue;
             }
             delete_post_meta( $post_id, $key );
@@ -288,9 +315,6 @@ class ProductMetaBox {
 
         foreach ( $snapshot_meta as $key => $values ) {
             if ( RevisionManager::is_reserved_meta_key( $key ) ) {
-                continue;
-            }
-            if ( in_array( $key, $protected, true ) ) {
                 continue;
             }
             foreach ( $values as $value ) {
@@ -310,17 +334,20 @@ class ProductMetaBox {
         }
 
         if ( ! function_exists( 'wc_get_product' ) ) {
+            self::restore_parent_state( $post_id );
             self::set_notice( $post_id, 'invalid_product' );
             return;
         }
 
         $product = wc_get_product( $post_id );
         if ( ! $product ) {
+            self::restore_parent_state( $post_id );
             self::set_notice( $post_id, 'invalid_product' );
             return;
         }
 
         if ( $product->is_type( 'variable' ) ) {
+            self::restore_parent_state( $post_id );
             self::set_notice( $post_id, 'variable_blocked' );
             return;
         }
@@ -328,11 +355,13 @@ class ProductMetaBox {
         try {
             $utc = Plugin::local_to_utc( $datetime );
         } catch ( \Exception $e ) {
+            self::restore_parent_state( $post_id );
             self::set_notice( $post_id, 'schedule_failed', $e->getMessage() );
             return;
         }
 
         if ( $utc['timestamp'] <= time() ) {
+            self::restore_parent_state( $post_id );
             self::set_notice( $post_id, 'schedule_failed', 'Data/hora precisa ser futura.' );
             return;
         }
@@ -351,6 +380,7 @@ class ProductMetaBox {
                 'did_init' => did_action( 'init' ),
             ] );
 
+            self::restore_parent_state( $post_id );
             self::set_notice( $post_id, 'create_failed', 'CPT nao registrado. Plugin carregou? Veja debug log.' );
             return;
         }
@@ -361,6 +391,9 @@ class ProductMetaBox {
         }
 
         $revision_id = RevisionManager::create_revision_from_product( $post_id, $payload );
+
+        self::restore_parent_state( $post_id );
+
         if ( is_wp_error( $revision_id ) ) {
             $error_message = $revision_id->get_error_message();
             Logger::log_system_event( 'revision_create_failed', [
