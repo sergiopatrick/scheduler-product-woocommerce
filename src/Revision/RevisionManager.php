@@ -53,6 +53,24 @@ class RevisionManager {
             'post_author' => $user_id,
         ];
 
+        if ( ! post_type_exists( Plugin::CPT ) ) {
+            RevisionPostType::register();
+        }
+
+        $cpt_registered = post_type_exists( Plugin::CPT );
+
+        if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+            error_log(
+                '[SANAR_WCPS] create revision: post_type_exists=' . ( $cpt_registered ? 'true' : 'false' ) .
+                ' did_init=' . (int) did_action( 'init' ) .
+                ' did_plugins_loaded=' . (int) did_action( 'plugins_loaded' )
+            );
+        }
+
+        if ( ! $cpt_registered ) {
+            return new \WP_Error( 'cpt_not_registered', 'CPT ainda não registrado após register() — bootstrap falhou.' );
+        }
+
         self::$is_processing = true;
         try {
             $revision_id = wp_insert_post( $args, true );

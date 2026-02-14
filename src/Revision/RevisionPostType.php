@@ -5,24 +5,26 @@ namespace Sanar\WCProductScheduler\Revision;
 use Sanar\WCProductScheduler\Plugin;
 
 class RevisionPostType {
-    private static bool $registered = false;
-
     public static function init(): void {
         add_action( 'init', [ __CLASS__, 'register' ], 1 );
         add_action( 'init', [ __CLASS__, 'register_meta' ], 5 );
     }
 
     public static function register(): void {
-        if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-            error_log( '[SANAR_WCPS] register CPT called' );
-        }
+        static $registered = false;
 
-        if ( self::$registered ) {
+        if ( $registered ) {
+            if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                error_log( '[SANAR_WCPS] CPT registered' );
+            }
             return;
         }
 
         if ( post_type_exists( Plugin::CPT ) ) {
-            self::$registered = true;
+            $registered = true;
+            if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                error_log( '[SANAR_WCPS] CPT registered' );
+            }
             return;
         }
 
@@ -46,7 +48,11 @@ class RevisionPostType {
             'menu_position' => 56,
         ] );
 
-        self::$registered = true;
+        $registered = true;
+
+        if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+            error_log( '[SANAR_WCPS] CPT registered' );
+        }
     }
 
     public static function register_meta(): void {

@@ -381,7 +381,7 @@ class ProductMetaBox {
             ] );
 
             self::restore_parent_state( $post_id );
-            self::set_notice( $post_id, 'create_failed', 'CPT nao registrado. Plugin carregou? Veja debug log.' );
+            self::set_notice( $post_id, 'create_failed', 'Ative WP_DEBUG_LOG e confira debug.log por [SANAR_WCPS]' );
             return;
         }
 
@@ -396,6 +396,9 @@ class ProductMetaBox {
 
         if ( is_wp_error( $revision_id ) ) {
             $error_message = $revision_id->get_error_message();
+            if ( $revision_id->get_error_code() === 'cpt_not_registered' ) {
+                $error_message = 'Ative WP_DEBUG_LOG e confira debug.log por [SANAR_WCPS]';
+            }
             Logger::log_system_event( 'revision_create_failed', [
                 'product_id' => $post_id,
                 'error' => $error_message,

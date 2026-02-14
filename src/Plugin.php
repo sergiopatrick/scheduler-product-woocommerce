@@ -34,15 +34,7 @@ class Plugin {
             error_log( '[SANAR_WCPS] Plugin::init loaded' );
         }
 
-        add_action( 'plugins_loaded', [ RevisionPostType::class, 'register' ], 0 );
-        add_action( 'init', [ RevisionPostType::class, 'register' ], 0 );
         add_action( 'init', [ RevisionPostType::class, 'register_meta' ], 5 );
-
-        RevisionPostType::register();
-
-        if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-            error_log( '[SANAR_WCPS] cpt_registered=' . ( post_type_exists( self::CPT ) ? '1' : '0' ) );
-        }
 
         ProductMetaBox::init();
         Scheduler::init();
@@ -55,12 +47,7 @@ class Plugin {
     }
 
     private static function includes(): void {
-        require_once SANAR_WCPS_PATH . 'src/Util/Logger.php';
         require_once SANAR_WCPS_PATH . 'src/Util/Lock.php';
-        require_once SANAR_WCPS_PATH . 'src/Revision/RevisionPostType.php';
-        require_once SANAR_WCPS_PATH . 'src/Revision/RevisionManager.php';
-        require_once SANAR_WCPS_PATH . 'src/Scheduler/Scheduler.php';
-        require_once SANAR_WCPS_PATH . 'src/Admin/ProductMetaBox.php';
         require_once SANAR_WCPS_PATH . 'src/Admin/RevisionAdmin.php';
     }
 
