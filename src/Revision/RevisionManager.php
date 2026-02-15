@@ -13,13 +13,19 @@ class RevisionManager {
     }
 
     public static function create_revision_from_product( int $product_id, array $payload = [], int $user_id = 0 ) {
+        self::persist_last_error( 'create_revision:start product_id=' . $product_id . ' time=' . gmdate( 'c' ) );
+
         if ( self::$is_processing ) {
-            return new \WP_Error( 'reentrancy_blocked', 'Execucao em andamento. Tente novamente.' );
+            $error = new \WP_Error( 'reentrancy_blocked', 'Execucao em andamento. Tente novamente.' );
+            self::persist_last_error( 'create_revision:error code=reentrancy_blocked message=' . $error->get_error_message() );
+            return $error;
         }
 
         $product = get_post( $product_id );
         if ( ! $product || $product->post_type !== 'product' ) {
-            return new \WP_Error( 'invalid_product', 'Produto invalido.' );
+            $error = new \WP_Error( 'invalid_product', 'Produto invalido.' );
+            self::persist_last_error( 'create_revision:error code=invalid_product message=' . $error->get_error_message() );
+            return $error;
         }
 
         $user_id = $user_id ? $user_id : get_current_user_id();
@@ -67,7 +73,9 @@ class RevisionManager {
         }
 
         if ( ! $cpt_registered ) {
-            return new \WP_Error( 'cpt_not_registered', 'CPT ainda não registrado após register() — bootstrap falhou.' );
+            $message = 'CPT missing after register: ' . Plugin::CPT;
+            self::persist_last_error( 'create_revision:error code=cpt_not_registered message=' . $message );
+            return new \WP_Error( 'cpt_not_registered', $message );
         }
 
         self::$is_processing = true;
@@ -78,6 +86,16 @@ class RevisionManager {
         }
 
         if ( is_wp_error( $revision_id ) ) {
+            $error_data = $revision_id->get_error_data();
+            $encoded_data = wp_json_encode( $error_data );
+            if ( ! is_string( $encoded_data ) ) {
+                $encoded_data = '';
+            }
+            self::persist_last_error(
+                'create_revision:wp_insert_post_error code=' . $revision_id->get_error_code() .
+                ' message=' . $revision_id->get_error_message() .
+                ( $encoded_data !== '' ? ' data=' . $encoded_data : '' )
+            );
             Logger::log_system_event( 'wp_insert_post_failed', [
                 'error_code' => $revision_id->get_error_code(),
                 'error_message' => $revision_id->get_error_message(),
@@ -89,12 +107,17 @@ class RevisionManager {
         }
 
         if ( ! $revision_id ) {
+            $message = 'wp_insert_post retornou 0 para product_id=' . $product_id . '.';
+            self::persist_last_error(
+                'create_revision:wp_insert_post_zero message=' . $message .
+                ' args=' . wp_json_encode( self::sanitize_insert_args( $args ) )
+            );
             Logger::log_system_event( 'wp_insert_post_zero', [
                 'args' => self::sanitize_insert_args( $args ),
                 'current_user_id' => $user_id,
                 'post_type_exists' => post_type_exists( Plugin::CPT ),
             ] );
-            return new \WP_Error( 'insert_failed', 'Nao foi possivel inserir o post no banco de dados.' );
+            return new \WP_Error( 'insert_failed', $message );
         }
 
         update_post_meta( $revision_id, Plugin::META_PARENT_ID, $product_id );
@@ -107,6 +130,7 @@ class RevisionManager {
         self::apply_payload_taxonomies( $revision_id, $payload );
 
         Logger::log_event( $revision_id, 'created', [ 'product_id' => $product_id ] );
+        self::persist_last_error( 'create_revision:ok revision_id=' . (int) $revision_id . ' product_id=' . $product_id );
 
         return $revision_id;
     }
@@ -498,5 +522,15 @@ class RevisionManager {
         }
 
         return $throwable->getFile() . ':' . $throwable->getLine() . ' - ' . $message;
+    }
+
+    public static function persist_last_error( string $message ): void {
+        $message = trim( $message );
+        if ( $message === '' ) {
+            return;
+        }
+
+        update_option( 'sanar_wcps_last_error', $message, false );
+        set_transient( 'sanar_wcps_last_error', $message, DAY_IN_SECONDS );
     }
 }

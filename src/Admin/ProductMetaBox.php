@@ -370,20 +370,6 @@ class ProductMetaBox {
             RevisionPostType::register_meta();
         }
 
-        if ( ! post_type_exists( Plugin::CPT ) ) {
-            Logger::log_system_event( 'cpt_missing', [
-                'product_id' => $post_id,
-                'post_type_exists' => false,
-                'class_exists' => class_exists( RevisionPostType::class ),
-                'did_plugins_loaded' => did_action( 'plugins_loaded' ),
-                'did_init' => did_action( 'init' ),
-            ] );
-
-            self::restore_parent_state( $post_id );
-            self::set_notice( $post_id, 'create_failed', 'Ative WP_DEBUG_LOG e confira debug.log por [SANAR_WCPS]' );
-            return;
-        }
-
         $payload = self::$schedule_request['payload'] ?? [];
         if ( ! is_array( $payload ) ) {
             $payload = [];
@@ -395,9 +381,11 @@ class ProductMetaBox {
 
         if ( is_wp_error( $revision_id ) ) {
             $error_message = $revision_id->get_error_message();
-            if ( $revision_id->get_error_code() === 'cpt_not_registered' ) {
-                $error_message = 'Ative WP_DEBUG_LOG e confira debug.log por [SANAR_WCPS]';
-            }
+            RevisionManager::persist_last_error(
+                'process_schedule:create_failed code=' . $revision_id->get_error_code() .
+                ' message=' . $error_message .
+                ' product_id=' . $post_id
+            );
             Logger::log_system_event( 'revision_create_failed', [
                 'product_id' => $post_id,
                 'error' => $error_message,

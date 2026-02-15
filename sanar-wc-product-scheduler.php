@@ -11,6 +11,14 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
+if ( ! defined( 'SANAR_WCPS_DIAG' ) ) {
+    define( 'SANAR_WCPS_DIAG', false );
+}
+
+if ( ! defined( 'SANAR_WCPS_PLUGIN_LOADED' ) ) {
+    define( 'SANAR_WCPS_PLUGIN_LOADED', true );
+}
+
 if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
     error_log( '[SANAR_WCPS] main loaded' );
 }
@@ -25,6 +33,7 @@ require_once __DIR__ . '/src/Revision/RevisionManager.php';
 require_once __DIR__ . '/src/Scheduler/Scheduler.php';
 require_once __DIR__ . '/src/Runner/Runner.php';
 require_once __DIR__ . '/src/Admin/ProductMetaBox.php';
+require_once __DIR__ . '/src/Admin/AdminStatusBox.php';
 require_once __DIR__ . '/src/Util/Logger.php';
 
 if ( defined( 'WP_CLI' ) && WP_CLI ) {
@@ -32,13 +41,7 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
     \WP_CLI::add_command( 'sanar-wcps', \Sanar\WCProductScheduler\Cli\Command::class );
 }
 
-add_action( 'init', function (): void {
-    if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-        error_log( '[SANAR_WCPS] CPT register hook fired' );
-    }
-
-    \Sanar\WCProductScheduler\Revision\RevisionPostType::register();
-}, 0 );
+add_action( 'init', [ '\\Sanar\\WCProductScheduler\\Revision\\RevisionPostType', 'register' ], 0 );
 
 add_action( 'plugins_loaded', 'sanar_wcps_bootstrap', 0 );
 

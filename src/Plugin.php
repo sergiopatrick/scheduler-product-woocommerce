@@ -4,6 +4,7 @@ namespace Sanar\WCProductScheduler;
 
 use Sanar\WCProductScheduler\Admin\ProductMetaBox;
 use Sanar\WCProductScheduler\Admin\RevisionAdmin;
+use Sanar\WCProductScheduler\Admin\AdminStatusBox;
 use Sanar\WCProductScheduler\Admin\SchedulesPage;
 use Sanar\WCProductScheduler\Revision\RevisionPostType;
 
@@ -38,6 +39,7 @@ class Plugin {
         add_action( 'init', [ RevisionPostType::class, 'register_meta' ], 5 );
 
         ProductMetaBox::init();
+        AdminStatusBox::init();
 
         RevisionAdmin::init();
         SchedulesPage::init();

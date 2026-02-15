@@ -51,6 +51,13 @@ Este plugin **nao usa WP-Cron nem Action Scheduler** para publicar revisoes.
 
 Eventos principais sao registrados no postmeta da revisao (`_sanar_wcps_log`) e falhas em `_sanar_wcps_error_message`.
 
+## Modo Diagnostico
+
+Para habilitar o box de diagnostico na edicao de produto:
+
+1. No `wp-config.php`, defina: `define('SANAR_WCPS_DIAG', true);`
+2. Abra um produto no admin e veja o metabox **Sanar WCPS Status**.
+
 ## Limitacoes (v1)
 
 - Produtos variaveis sao bloqueados nesta versao inicial.
