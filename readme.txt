@@ -25,6 +25,7 @@ Agende atualizacoes completas em produtos WooCommerce usando revisoes versionada
 2. Nao e necessario salvar o produto.
 3. No box "Agendar atualizacao", selecione data/hora e confirme.
 4. A revisao sera publicada quando o runner WP-CLI processar os itens vencidos.
+5. Use WooCommerce > Agendamentos para listar, filtrar e executar acoes (Cancelar, Reagendar, Executar agora).
 
 == Limitations ==
 

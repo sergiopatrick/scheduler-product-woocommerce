@@ -12,6 +12,10 @@
   - Intercepta o salvamento para impedir vazamento no produto pai.
 - `RevisionAdmin`
   - Lista de revisoes, colunas, filtros e acoes.
+- `SchedulesPage`
+  - Home de Agendamentos no admin (submenu WooCommerce), detalhes e handlers de acoes.
+- `SchedulesTable`
+  - Tabela baseada em `WP_List_Table` com filtros, busca e paginacao.
 - `RevisionManager`
   - Clonagem, snapshot, aplicacao e validacoes.
 - `Runner`

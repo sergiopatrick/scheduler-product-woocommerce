@@ -26,6 +26,14 @@ Acesse **WooCommerce > Revisoes de Produto** para listar revisoes, ver o produto
 - Cancelar
 - Editar revisao
 
+### Home de Agendamentos
+
+Acesse **WooCommerce > Agendamentos** para gerenciar todos os agendamentos em uma tela unica:
+
+- Filtros por status, intervalo e busca por produto/ID
+- Acoes por item: Ver, Cancelar, Reagendar e Executar agora
+- Tela de detalhes com log completo e erro completo
+
 ## Runner WP-CLI
 
 Comandos:

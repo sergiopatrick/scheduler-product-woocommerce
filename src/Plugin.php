@@ -4,6 +4,7 @@ namespace Sanar\WCProductScheduler;
 
 use Sanar\WCProductScheduler\Admin\ProductMetaBox;
 use Sanar\WCProductScheduler\Admin\RevisionAdmin;
+use Sanar\WCProductScheduler\Admin\SchedulesPage;
 use Sanar\WCProductScheduler\Revision\RevisionPostType;
 
 class Plugin {
@@ -17,6 +18,7 @@ class Plugin {
     public const META_ERROR = '_sanar_wcps_error_message';
     public const META_TAXONOMIES = '_sanar_wcps_taxonomies';
     public const META_TIMEZONE = '_sanar_wcps_timezone';
+    public const META_PUBLISHED_AT = '_sanar_wcps_published_at';
 
     public const STATUS_DRAFT = 'draft';
     public const STATUS_SCHEDULED = 'scheduled';
@@ -36,6 +38,7 @@ class Plugin {
         ProductMetaBox::init();
 
         RevisionAdmin::init();
+        SchedulesPage::init();
 
         add_action( 'init', [ __CLASS__, 'load_textdomain' ] );
         add_action( 'admin_enqueue_scripts', [ __CLASS__, 'enqueue_assets' ] );
@@ -43,9 +46,20 @@ class Plugin {
 
     private static function includes(): void {
         require_once SANAR_WCPS_PATH . 'src/Admin/RevisionAdmin.php';
+        require_once SANAR_WCPS_PATH . 'src/Admin/SchedulesPage.php';
     }
 
     public static function enqueue_assets( string $hook ): void {
+        if ( $hook === 'woocommerce_page_' . SchedulesPage::MENU_SLUG ) {
+            wp_enqueue_style(
+                'sanar_wcps_admin',
+                SANAR_WCPS_URL . 'assets/css/admin.css',
+                [],
+                SANAR_WCPS_VERSION
+            );
+            return;
+        }
+
         $screen = get_current_screen();
         if ( ! $screen ) {
             return;

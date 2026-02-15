@@ -25,47 +25,92 @@ class Runner {
 
         foreach ( $revision_ids as $revision_id ) {
             $result['ids'][] = $revision_id;
-
-            $parent_id = (int) get_post_meta( $revision_id, Plugin::META_PARENT_ID, true );
-            if ( $parent_id <= 0 ) {
-                self::mark_failed(
-                    $revision_id,
-                    'Revisao sem parent_product_id valido.',
-                    [ 'reason' => 'missing_parent_product_id' ]
-                );
-                $result['failed']++;
-                $result['processed']++;
-                continue;
-            }
-
-            if ( ! self::acquire_product_lock( $parent_id ) ) {
-                Logger::log_event( $revision_id, 'skipped_lock', [ 'product_id' => $parent_id ] );
+            $run = self::run_revision( (int) $revision_id );
+            if ( $run['status'] === 'locked' ) {
                 $result['locked']++;
                 continue;
             }
-
-            try {
-                $applied = RevisionManager::apply_revision( $revision_id );
+            if ( $run['status'] === 'published' ) {
+                $result['published']++;
                 $result['processed']++;
-                if ( $applied ) {
-                    $result['published']++;
-                } else {
-                    $result['failed']++;
-                }
-            } catch ( \Throwable $throwable ) {
-                self::mark_failed(
-                    $revision_id,
-                    self::throwable_message( $throwable ),
-                    [ 'stack' => self::summarize_stack_trace( $throwable ) ]
-                );
+                continue;
+            }
+            if ( $run['status'] === 'failed' ) {
                 $result['failed']++;
                 $result['processed']++;
-            } finally {
-                self::release_product_lock( $parent_id );
+                continue;
             }
         }
 
         return $result;
+    }
+
+    public static function run_revision( int $revision_id ): array {
+        $result = [
+            'revision_id' => $revision_id,
+            'status' => 'failed',
+            'message' => '',
+        ];
+
+        if ( $revision_id <= 0 ) {
+            $result['message'] = 'revision_id invalido.';
+            return $result;
+        }
+
+        $revision = get_post( $revision_id );
+        if ( ! $revision || $revision->post_type !== Plugin::CPT ) {
+            $result['message'] = 'Revisao nao encontrada.';
+            self::mark_failed( $revision_id, $result['message'], [ 'reason' => 'revision_not_found' ] );
+            return $result;
+        }
+
+        $status = (string) get_post_meta( $revision_id, Plugin::META_STATUS, true );
+        if ( in_array( $status, [ Plugin::STATUS_CANCELLED, Plugin::STATUS_PUBLISHED ], true ) ) {
+            $result['status'] = 'skipped';
+            $result['message'] = 'Status nao executavel: ' . $status;
+            Logger::log_event( $revision_id, 'skipped_status', [ 'status' => $status ] );
+            return $result;
+        }
+
+        $parent_id = (int) get_post_meta( $revision_id, Plugin::META_PARENT_ID, true );
+        if ( $parent_id <= 0 ) {
+            $result['message'] = 'Revisao sem parent_product_id valido.';
+            self::mark_failed( $revision_id, $result['message'], [ 'reason' => 'missing_parent_product_id' ] );
+            return $result;
+        }
+
+        if ( ! self::acquire_product_lock( $parent_id ) ) {
+            $result['status'] = 'locked';
+            $result['message'] = 'Lock ativo para o produto.';
+            Logger::log_event( $revision_id, 'skipped_lock', [ 'product_id' => $parent_id ] );
+            return $result;
+        }
+
+        try {
+            $applied = RevisionManager::apply_revision( $revision_id );
+            if ( $applied ) {
+                $result['status'] = 'published';
+                $result['message'] = 'Revisao publicada com sucesso.';
+                return $result;
+            }
+
+            $result['status'] = 'failed';
+            $error = (string) get_post_meta( $revision_id, Plugin::META_ERROR, true );
+            $result['message'] = $error !== '' ? $error : 'Falha ao aplicar revisao.';
+            return $result;
+        } catch ( \Throwable $throwable ) {
+            $result['status'] = 'failed';
+            $result['message'] = self::throwable_message( $throwable );
+
+            self::mark_failed(
+                $revision_id,
+                $result['message'],
+                [ 'stack' => self::summarize_stack_trace( $throwable ) ]
+            );
+            return $result;
+        } finally {
+            self::release_product_lock( $parent_id );
+        }
     }
 
     public static function list_scheduled( int $limit = self::DEFAULT_BATCH_SIZE ): array {

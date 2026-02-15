@@ -193,6 +193,7 @@ class RevisionManager {
             do_action( 'sanar_wcps_cache_purge', $product_id, $revision_id );
 
             update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_PUBLISHED );
+            update_post_meta( $revision_id, Plugin::META_PUBLISHED_AT, gmdate( 'Y-m-d H:i:s' ) );
             delete_post_meta( $revision_id, Plugin::META_ERROR );
 
             Logger::log_event( $revision_id, 'published', [
