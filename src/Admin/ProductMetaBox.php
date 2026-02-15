@@ -1,4 +1,11 @@
 <?php
+/**
+ * Product edit metabox scheduling UI.
+ *
+ * @author Sérgio Patrick
+ * @email sergio.patrick@outlook.com.br
+ * @whatsapp +55 71 98391-1751
+ */
 
 namespace Sanar\WCProductScheduler\Admin;
 

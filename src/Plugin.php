@@ -1,7 +1,16 @@
 <?php
+/**
+ * Core plugin bootstrap and shared helpers.
+ *
+ * @author Sérgio Patrick
+ * @email sergio.patrick@outlook.com.br
+ * @whatsapp +55 71 98391-1751
+ */
 
 namespace Sanar\WCProductScheduler;
 
+use Sanar\WCProductScheduler\Admin\AboutPage;
+use Sanar\WCProductScheduler\Admin\Credits;
 use Sanar\WCProductScheduler\Admin\ProductMetaBox;
 use Sanar\WCProductScheduler\Admin\ProductListColumn;
 use Sanar\WCProductScheduler\Admin\RevisionAdmin;
@@ -10,8 +19,11 @@ use Sanar\WCProductScheduler\Admin\SchedulesPage;
 use Sanar\WCProductScheduler\Revision\RevisionPostType;
 use Sanar\WCProductScheduler\Revision\RevisionTypeCompat;
 use Sanar\WCProductScheduler\Scheduler\Scheduler;
+use Sanar\WCProductScheduler\Util\Logger;
 
 class Plugin {
+    private static bool $author_bootstrap_logged = false;
+
     // WordPress limita post_type a 20 caracteres.
     public const CPT = 'sanar_product_revisi';
     public const CPT_LEGACY = 'sanar_product_revision';
@@ -35,15 +47,14 @@ class Plugin {
 
     public static function init(): void {
         self::includes();
-
-        if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-            error_log( '[SANAR_WCPS] Plugin::init loaded' );
-        }
+        self::log_author_bootstrap_once();
 
         add_action( 'init', [ RevisionPostType::class, 'register_meta' ], 5 );
 
         ProductMetaBox::init();
         ProductListColumn::init();
+        Credits::init();
+        AboutPage::init();
         AdminStatusBox::init();
 
         RevisionAdmin::init();
@@ -58,6 +69,8 @@ class Plugin {
         require_once SANAR_WCPS_PATH . 'src/Admin/RevisionAdmin.php';
         require_once SANAR_WCPS_PATH . 'src/Admin/SchedulesPage.php';
         require_once SANAR_WCPS_PATH . 'src/Admin/ProductListColumn.php';
+        require_once SANAR_WCPS_PATH . 'src/Admin/Credits.php';
+        require_once SANAR_WCPS_PATH . 'src/Admin/AboutPage.php';
     }
 
     public static function enqueue_assets( string $hook ): void {
@@ -193,6 +206,53 @@ class Plugin {
         $dt = new \DateTime( $utc, new \DateTimeZone( 'UTC' ) );
         $dt->setTimezone( wp_timezone() );
         return $dt->format( $format );
+    }
+
+    public static function author_name(): string {
+        if ( defined( 'SANAR_WCPS_AUTHOR_NAME' ) && is_string( SANAR_WCPS_AUTHOR_NAME ) ) {
+            return SANAR_WCPS_AUTHOR_NAME;
+        }
+
+        return 'Sérgio Patrick';
+    }
+
+    public static function author_email(): string {
+        if ( defined( 'SANAR_WCPS_AUTHOR_EMAIL' ) && is_string( SANAR_WCPS_AUTHOR_EMAIL ) ) {
+            return SANAR_WCPS_AUTHOR_EMAIL;
+        }
+
+        return 'sergio.patrick@outlook.com.br';
+    }
+
+    public static function author_whatsapp(): string {
+        if ( defined( 'SANAR_WCPS_AUTHOR_WHATSAPP' ) && is_string( SANAR_WCPS_AUTHOR_WHATSAPP ) ) {
+            return SANAR_WCPS_AUTHOR_WHATSAPP;
+        }
+
+        return '+55 71 98391-1751';
+    }
+
+    public static function author_credits(): string {
+        if ( defined( 'SANAR_WCPS_AUTHOR_CREDITS' ) && is_string( SANAR_WCPS_AUTHOR_CREDITS ) ) {
+            return SANAR_WCPS_AUTHOR_CREDITS;
+        }
+
+        return self::author_name() . ' | ' . self::author_email() . ' | ' . self::author_whatsapp();
+    }
+
+    private static function log_author_bootstrap_once(): void {
+        if ( self::$author_bootstrap_logged ) {
+            return;
+        }
+
+        self::$author_bootstrap_logged = true;
+        $line = '[SANAR_WCPS] Engineered by ' . self::author_credits();
+
+        Logger::log_system_event( $line );
+
+        if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+            error_log( $line );
+        }
     }
 
 }

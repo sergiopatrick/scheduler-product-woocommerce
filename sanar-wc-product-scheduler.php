@@ -1,9 +1,11 @@
 <?php
 /**
  * Plugin Name: Sanar WC Product Scheduler
+ * Plugin URI: mailto:sergio.patrick@outlook.com.br
  * Description: Agenda atualizacoes completas de produtos WooCommerce via revisoes versionadas e runner WP-CLI.
  * Version: 0.1.0
- * Author: Sanar
+ * Author: Sérgio Patrick
+ * Author URI: mailto:sergio.patrick@outlook.com.br
  * Text Domain: sanar-wc-product-scheduler
  */
 
@@ -26,6 +28,25 @@ if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 define( 'SANAR_WCPS_PATH', plugin_dir_path( __FILE__ ) );
 define( 'SANAR_WCPS_URL', plugin_dir_url( __FILE__ ) );
 define( 'SANAR_WCPS_VERSION', '0.1.0' );
+
+if ( ! defined( 'SANAR_WCPS_AUTHOR_NAME' ) ) {
+    define( 'SANAR_WCPS_AUTHOR_NAME', 'Sérgio Patrick' );
+}
+
+if ( ! defined( 'SANAR_WCPS_AUTHOR_EMAIL' ) ) {
+    define( 'SANAR_WCPS_AUTHOR_EMAIL', 'sergio.patrick@outlook.com.br' );
+}
+
+if ( ! defined( 'SANAR_WCPS_AUTHOR_WHATSAPP' ) ) {
+    define( 'SANAR_WCPS_AUTHOR_WHATSAPP', '+55 71 98391-1751' );
+}
+
+if ( ! defined( 'SANAR_WCPS_AUTHOR_CREDITS' ) ) {
+    define(
+        'SANAR_WCPS_AUTHOR_CREDITS',
+        SANAR_WCPS_AUTHOR_NAME . ' | ' . SANAR_WCPS_AUTHOR_EMAIL . ' | ' . SANAR_WCPS_AUTHOR_WHATSAPP
+    );
+}
 
 require_once __DIR__ . '/src/Plugin.php';
 require_once __DIR__ . '/src/Revision/RevisionPostType.php';

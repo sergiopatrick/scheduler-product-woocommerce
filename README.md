@@ -91,3 +91,9 @@ Executar em ambiente WordPress com WooCommerce ativo.
 - Erro controlado:
   - Simular excecao durante aplicacao da revisao
   - Verificar: admin_notice com mensagem real e log registrado
+
+## Autor
+
+Desenvolvido por **Sérgio Patrick**
+Email: sergio.patrick@outlook.com.br
+WhatsApp: +55 71 98391-1751
