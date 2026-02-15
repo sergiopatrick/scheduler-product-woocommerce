@@ -7,6 +7,7 @@ use Sanar\WCProductScheduler\Revision\RevisionManager;
 use Sanar\WCProductScheduler\Revision\RevisionMigration;
 use Sanar\WCProductScheduler\Revision\RevisionTypeCompat;
 use Sanar\WCProductScheduler\Runner\Runner;
+use Sanar\WCProductScheduler\Scheduler\Scheduler;
 use Sanar\WCProductScheduler\Util\Logger;
 
 class SchedulesPage {
@@ -59,6 +60,9 @@ class SchedulesPage {
         }
 
         update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_CANCELLED );
+        delete_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME );
+        delete_post_meta( $revision_id, Plugin::META_SCHEDULED_UTC );
+        delete_post_meta( $revision_id, Plugin::META_TIMEZONE );
         Logger::log_event( $revision_id, 'cancelled', [ 'source' => 'dashboard' ] );
 
         self::redirect_with_notice( 'cancelled' );
@@ -90,11 +94,12 @@ class SchedulesPage {
             self::redirect_with_notice( 'reschedule_failed', [ self::NOTICE_MESSAGE_KEY => 'Revisao orfa: parent_product_id ausente.' ], $revision_id );
         }
 
-        if ( $parent_id > 0 && RevisionManager::has_schedule_conflict( $parent_id, $utc['utc'], $revision_id ) ) {
+        if ( $parent_id > 0 && RevisionManager::has_schedule_conflict( $parent_id, (int) $utc['timestamp'], $revision_id ) ) {
             self::redirect_with_notice( 'reschedule_failed', [ self::NOTICE_MESSAGE_KEY => 'Ja existe revisao agendada para esse horario.' ], $revision_id );
         }
 
-        update_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME, $utc['utc'] );
+        update_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME, (int) $utc['timestamp'] );
+        update_post_meta( $revision_id, Plugin::META_SCHEDULED_UTC, $utc['utc'] );
         update_post_meta( $revision_id, Plugin::META_TIMEZONE, $utc['timezone'] );
         update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_SCHEDULED );
         delete_post_meta( $revision_id, Plugin::META_ERROR );
@@ -206,7 +211,16 @@ class SchedulesPage {
         $parent_id = self::resolve_parent_id( $revision_id );
 
         $status = (string) get_post_meta( $revision_id, Plugin::META_STATUS, true );
-        $scheduled_utc = (string) get_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME, true );
+        $scheduled_raw = get_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME, true );
+        $scheduled_timestamp = Plugin::scheduled_timestamp_from_meta( $scheduled_raw );
+        $scheduled_utc = (string) get_post_meta( $revision_id, Plugin::META_SCHEDULED_UTC, true );
+        if ( $scheduled_utc === '' ) {
+            $scheduled_utc = Plugin::scheduled_timestamp_to_utc( $scheduled_timestamp );
+        }
+        $scheduled_local = Plugin::format_scheduled_local( $scheduled_timestamp, 'Y-m-d H:i' );
+        if ( $scheduled_local === '' ) {
+            $scheduled_local = self::format_utc_to_local( $scheduled_utc );
+        }
         $timezone = (string) get_post_meta( $revision_id, Plugin::META_TIMEZONE, true );
         $timezone = $timezone !== '' ? $timezone : wp_timezone_string();
         $error = (string) get_post_meta( $revision_id, Plugin::META_ERROR, true );
@@ -224,7 +238,7 @@ class SchedulesPage {
 
         if ( $is_orphan ) {
             $integrity_message = 'Revisao orfa: parent_product_id invalido ou ausente.';
-        } elseif ( $scheduled_utc === '' && $status === Plugin::STATUS_SCHEDULED ) {
+        } elseif ( $scheduled_timestamp <= 0 && $status === Plugin::STATUS_SCHEDULED ) {
             $integrity_message = 'Revisao scheduled sem data agendada.';
         }
 
@@ -246,8 +260,9 @@ class SchedulesPage {
             'product_edit_url' => ( $product_post && $product_post->post_type === 'product' ) ? get_edit_post_link( $parent_id ) : '',
             'product_view_url' => ( $product_post && $product_post->post_type === 'product' ) ? get_permalink( $parent_id ) : '',
             'status' => $status !== '' ? $status : Plugin::STATUS_DRAFT,
+            'scheduled_timestamp' => $scheduled_timestamp,
             'scheduled_utc' => $scheduled_utc,
-            'scheduled_local' => self::format_utc_to_local( $scheduled_utc ),
+            'scheduled_local' => $scheduled_local,
             'timezone' => $timezone,
             'created_by_id' => $created_by,
             'created_by_name' => $created_user ? $created_user->display_name : ( $created_by > 0 ? (string) $created_by : '-' ),
@@ -308,6 +323,7 @@ class SchedulesPage {
         $table = new SchedulesTable();
         $table->prepare_items();
         $filters = $table->get_active_filters();
+        $telemetry = self::build_runner_telemetry();
 
         $template = SANAR_WCPS_PATH . 'templates/admin-schedules-list.php';
         if ( file_exists( $template ) ) {
@@ -336,6 +352,71 @@ class SchedulesPage {
         }
 
         wp_die( 'Template admin-schedules-detail.php nao encontrado.' );
+    }
+
+    private static function build_runner_telemetry(): array {
+        $last_run_utc = (string) get_option( 'sanar_wcps_last_run_utc', '' );
+        $last_run_local = self::format_utc_to_local( $last_run_utc );
+        $last_run_count = (int) get_option( 'sanar_wcps_last_run_count', 0 );
+
+        $next_tick = wp_next_scheduled( Scheduler::CRON_HOOK );
+        $next_tick_utc = $next_tick ? gmdate( 'Y-m-d H:i:s', (int) $next_tick ) : '';
+        $next_tick_local = $next_tick ? Plugin::format_scheduled_local( (int) $next_tick, 'Y-m-d H:i:s' ) : '';
+
+        $cron_key = defined( 'SANAR_WCPS_CRON_KEY' ) && is_string( SANAR_WCPS_CRON_KEY )
+            ? trim( SANAR_WCPS_CRON_KEY )
+            : '';
+
+        $fallback_base = add_query_arg(
+            [ 'action' => Scheduler::FALLBACK_ACTION ],
+            admin_url( 'admin-post.php' )
+        );
+
+        $fallback_url = '';
+        $fallback_url_masked = $fallback_base . '&key=<configure-SANAR_WCPS_CRON_KEY>';
+        if ( $cron_key !== '' ) {
+            $fallback_url = add_query_arg(
+                [
+                    'action' => Scheduler::FALLBACK_ACTION,
+                    'key' => $cron_key,
+                ],
+                admin_url( 'admin-post.php' )
+            );
+            $fallback_url_masked = add_query_arg(
+                [
+                    'action' => Scheduler::FALLBACK_ACTION,
+                    'key' => self::mask_secret( $cron_key ),
+                ],
+                admin_url( 'admin-post.php' )
+            );
+        }
+
+        return [
+            'last_run_utc' => $last_run_utc,
+            'last_run_local' => $last_run_local,
+            'last_run_count' => $last_run_count,
+            'next_tick_timestamp' => $next_tick ? (int) $next_tick : 0,
+            'next_tick_utc' => $next_tick_utc,
+            'next_tick_local' => $next_tick_local,
+            'cron_missing' => ! $next_tick,
+            'cron_key_defined' => $cron_key !== '',
+            'fallback_url' => $fallback_url,
+            'fallback_url_masked' => $fallback_url_masked,
+        ];
+    }
+
+    private static function mask_secret( string $value ): string {
+        $value = trim( $value );
+        if ( $value === '' ) {
+            return '';
+        }
+
+        $length = strlen( $value );
+        if ( $length <= 8 ) {
+            return str_repeat( '*', $length );
+        }
+
+        return substr( $value, 0, 4 ) . str_repeat( '*', max( 2, $length - 8 ) ) . substr( $value, -4 );
     }
 
     private static function get_published_utc( int $revision_id ): string {

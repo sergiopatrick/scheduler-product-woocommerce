@@ -27,7 +27,7 @@ class RevisionAdmin {
         $new['title'] = __( 'Revisao', 'sanar-wc-product-scheduler' );
         $new['parent_product'] = __( 'Produto Pai', 'sanar-wc-product-scheduler' );
         $new['status'] = __( 'Status', 'sanar-wc-product-scheduler' );
-        $new['scheduled'] = __( 'Agendado (UTC)', 'sanar-wc-product-scheduler' );
+        $new['scheduled'] = __( 'Agendado', 'sanar-wc-product-scheduler' );
         $new['created_by'] = __( 'Criado por', 'sanar-wc-product-scheduler' );
         $new['date'] = $columns['date'] ?? __( 'Data', 'sanar-wc-product-scheduler' );
         return $new;
@@ -51,8 +51,15 @@ class RevisionAdmin {
         }
 
         if ( $column === 'scheduled' ) {
-            $utc = get_post_meta( $post_id, Plugin::META_SCHEDULED_DATETIME, true );
-            echo esc_html( $utc ?: '-' );
+            $scheduled_raw = get_post_meta( $post_id, Plugin::META_SCHEDULED_DATETIME, true );
+            $scheduled_ts = Plugin::scheduled_timestamp_from_meta( $scheduled_raw );
+            if ( $scheduled_ts > 0 ) {
+                $local = Plugin::format_scheduled_local( $scheduled_ts, 'Y-m-d H:i' );
+                $utc = Plugin::scheduled_timestamp_to_utc( $scheduled_ts );
+                echo esc_html( $local . ' (UTC ' . $utc . ')' );
+            } else {
+                echo '-';
+            }
         }
 
         if ( $column === 'created_by' ) {
@@ -154,8 +161,9 @@ class RevisionAdmin {
 
     public static function render_meta_box( $post ): void {
         $timezone = wp_timezone_string();
-        $utc = get_post_meta( $post->ID, Plugin::META_SCHEDULED_DATETIME, true );
-        $local_value = $utc ? Plugin::utc_to_site( $utc ) : '';
+        $scheduled_raw = get_post_meta( $post->ID, Plugin::META_SCHEDULED_DATETIME, true );
+        $scheduled_ts = Plugin::scheduled_timestamp_from_meta( $scheduled_raw );
+        $local_value = $scheduled_ts > 0 ? Plugin::format_scheduled_local( $scheduled_ts, 'Y-m-d H:i' ) : '';
 
         echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
         wp_nonce_field( 'sanar_wcps_schedule_revision', 'sanar_wcps_nonce' );
@@ -208,12 +216,13 @@ class RevisionAdmin {
         try {
             $utc = Plugin::local_to_utc( $datetime );
 
-            if ( RevisionManager::has_schedule_conflict( $parent_id, $utc['utc'], $revision_id ) ) {
+            if ( RevisionManager::has_schedule_conflict( $parent_id, (int) $utc['timestamp'], $revision_id ) ) {
                 wp_redirect( add_query_arg( 'sanar_wcps_notice', 'schedule_conflict', wp_get_referer() ) );
                 exit;
             }
 
-            update_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME, $utc['utc'] );
+            update_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME, (int) $utc['timestamp'] );
+            update_post_meta( $revision_id, Plugin::META_SCHEDULED_UTC, $utc['utc'] );
             update_post_meta( $revision_id, Plugin::META_TIMEZONE, $utc['timezone'] );
             update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_SCHEDULED );
             Logger::log_event( $revision_id, 'scheduled', [ 'scheduled_utc' => $utc['utc'] ] );
@@ -243,7 +252,9 @@ class RevisionAdmin {
         }
 
         update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_SCHEDULED );
-        update_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME, gmdate( 'Y-m-d H:i:s' ) );
+        $timestamp = time();
+        update_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME, $timestamp );
+        update_post_meta( $revision_id, Plugin::META_SCHEDULED_UTC, Plugin::scheduled_timestamp_to_utc( $timestamp ) );
         update_post_meta( $revision_id, Plugin::META_TIMEZONE, wp_timezone_string() );
         Logger::log_event( $revision_id, 'scheduled_immediate', [] );
 
@@ -265,6 +276,7 @@ class RevisionAdmin {
 
         update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_CANCELLED );
         delete_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME );
+        delete_post_meta( $revision_id, Plugin::META_SCHEDULED_UTC );
         delete_post_meta( $revision_id, Plugin::META_TIMEZONE );
         Logger::log_event( $revision_id, 'cancelled', [] );
 

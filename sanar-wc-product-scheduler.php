@@ -45,8 +45,19 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
 
 add_action( 'init', [ '\\Sanar\\WCProductScheduler\\Revision\\RevisionPostType', 'register' ], 0 );
 
+register_activation_hook( __FILE__, 'sanar_wcps_activate' );
+register_deactivation_hook( __FILE__, 'sanar_wcps_deactivate' );
+
 add_action( 'plugins_loaded', 'sanar_wcps_bootstrap', 0 );
 
 function sanar_wcps_bootstrap(): void {
     \Sanar\WCProductScheduler\Plugin::init();
+}
+
+function sanar_wcps_activate(): void {
+    \Sanar\WCProductScheduler\Scheduler\Scheduler::activate();
+}
+
+function sanar_wcps_deactivate(): void {
+    \Sanar\WCProductScheduler\Scheduler\Scheduler::deactivate();
 }

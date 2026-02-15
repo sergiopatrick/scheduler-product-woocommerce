@@ -360,9 +360,13 @@ class RevisionManager {
         ];
     }
 
-    public static function has_schedule_conflict( int $product_id, string $scheduled_utc, int $exclude_revision_id = 0 ): bool {
+    public static function has_schedule_conflict( int $product_id, int $scheduled_timestamp, int $exclude_revision_id = 0 ): bool {
+        if ( $product_id <= 0 || $scheduled_timestamp <= 0 ) {
+            return false;
+        }
+
         $args = [
-            'post_type' => Plugin::CPT,
+            'post_type' => RevisionTypeCompat::compatible_types(),
             'post_status' => 'any',
             'posts_per_page' => 1,
             'fields' => 'ids',
@@ -380,8 +384,14 @@ class RevisionManager {
                 ],
                 [
                     'key' => Plugin::META_SCHEDULED_DATETIME,
-                    'value' => $scheduled_utc,
+                    'value' => '^[0-9]+$',
+                    'compare' => 'REGEXP',
+                ],
+                [
+                    'key' => Plugin::META_SCHEDULED_DATETIME,
+                    'value' => $scheduled_timestamp,
                     'compare' => '=',
+                    'type' => 'NUMERIC',
                 ],
             ],
         ];

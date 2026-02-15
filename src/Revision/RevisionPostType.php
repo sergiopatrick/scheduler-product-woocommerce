@@ -82,7 +82,8 @@ class RevisionPostType {
         ];
 
         register_post_meta( Plugin::CPT, Plugin::META_PARENT_ID, array_merge( $meta_args, [ 'type' => 'integer' ] ) );
-        register_post_meta( Plugin::CPT, Plugin::META_SCHEDULED_DATETIME, $meta_args );
+        register_post_meta( Plugin::CPT, Plugin::META_SCHEDULED_DATETIME, array_merge( $meta_args, [ 'type' => 'integer' ] ) );
+        register_post_meta( Plugin::CPT, Plugin::META_SCHEDULED_UTC, $meta_args );
         register_post_meta( Plugin::CPT, Plugin::META_STATUS, $meta_args );
         register_post_meta( Plugin::CPT, Plugin::META_CREATED_BY, array_merge( $meta_args, [ 'type' => 'integer' ] ) );
         register_post_meta( Plugin::CPT, Plugin::META_LOG, array_merge( $meta_args, [ 'type' => 'array' ] ) );

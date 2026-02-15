@@ -405,22 +405,23 @@ class ProductMetaBox {
             return;
         }
 
-        if ( RevisionManager::has_schedule_conflict( $post_id, $utc['utc'], $revision_id ) ) {
+        if ( RevisionManager::has_schedule_conflict( $post_id, (int) $utc['timestamp'], $revision_id ) ) {
             update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_DRAFT );
             Logger::log_event( $revision_id, 'schedule_conflict', [ 'scheduled_utc' => $utc['utc'] ] );
             self::set_notice( $post_id, 'schedule_conflict' );
             return;
         }
 
-        update_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME, $utc['utc'] );
+        update_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME, (int) $utc['timestamp'] );
+        update_post_meta( $revision_id, Plugin::META_SCHEDULED_UTC, $utc['utc'] );
         update_post_meta( $revision_id, Plugin::META_TIMEZONE, $utc['timezone'] );
         update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_SCHEDULED );
 
         $stored_status = (string) get_post_meta( $revision_id, Plugin::META_STATUS, true );
-        $stored_scheduled = (string) get_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME, true );
+        $stored_scheduled = (int) get_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME, true );
         $stored_parent_id = (int) get_post_meta( $revision_id, Plugin::META_PARENT_ID, true );
 
-        if ( $stored_parent_id !== $post_id || $stored_status !== Plugin::STATUS_SCHEDULED || $stored_scheduled !== $utc['utc'] ) {
+        if ( $stored_parent_id !== $post_id || $stored_status !== Plugin::STATUS_SCHEDULED || $stored_scheduled !== (int) $utc['timestamp'] ) {
             self::fail_schedule(
                 $post_id,
                 'process_schedule:integrity_failed',
@@ -430,7 +431,7 @@ class ProductMetaBox {
                     'parent' => $stored_parent_id,
                     'status' => $stored_status,
                     'scheduled' => $stored_scheduled,
-                    'expected_scheduled' => $utc['utc'],
+                    'expected_scheduled' => (int) $utc['timestamp'],
                 ]
             );
             return;
@@ -438,7 +439,7 @@ class ProductMetaBox {
 
         Logger::log_event( $revision_id, 'scheduled', [ 'scheduled_utc' => $utc['utc'] ] );
 
-        $scheduled_local = Plugin::format_site_datetime( $utc['utc'] );
+        $scheduled_local = Plugin::format_scheduled_local( (int) $utc['timestamp'] );
         self::set_notice( $post_id, 'scheduled', '', $scheduled_local );
     }
 
@@ -488,7 +489,7 @@ class ProductMetaBox {
             'post_status' => 'any',
             'posts_per_page' => 1,
             'fields' => 'ids',
-            'orderby' => 'meta_value',
+            'orderby' => 'meta_value_num',
             'order' => 'ASC',
             'meta_key' => Plugin::META_SCHEDULED_DATETIME,
             'meta_query' => [
@@ -503,6 +504,11 @@ class ProductMetaBox {
                     'value' => Plugin::STATUS_SCHEDULED,
                     'compare' => '=',
                 ],
+                [
+                    'key' => Plugin::META_SCHEDULED_DATETIME,
+                    'value' => '^[0-9]+$',
+                    'compare' => 'REGEXP',
+                ],
             ],
         ] );
 
@@ -511,16 +517,23 @@ class ProductMetaBox {
         }
 
         $revision_id = (int) $query->posts[0];
-        $utc = get_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME, true );
+        $scheduled_raw = get_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME, true );
+        $scheduled_ts = Plugin::scheduled_timestamp_from_meta( $scheduled_raw );
+        $scheduled_utc = (string) get_post_meta( $revision_id, Plugin::META_SCHEDULED_UTC, true );
 
-        if ( ! $utc ) {
+        if ( $scheduled_ts <= 0 ) {
             return null;
+        }
+
+        if ( $scheduled_utc === '' ) {
+            $scheduled_utc = Plugin::scheduled_timestamp_to_utc( $scheduled_ts );
         }
 
         return [
             'id' => $revision_id,
-            'utc' => $utc,
-            'local' => Plugin::utc_to_site( $utc ),
+            'timestamp' => $scheduled_ts,
+            'utc' => $scheduled_utc,
+            'local' => Plugin::format_scheduled_local( $scheduled_ts, 'Y-m-d H:i' ),
         ];
     }
 

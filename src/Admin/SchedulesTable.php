@@ -172,7 +172,7 @@ class SchedulesTable extends \WP_List_Table {
             $args['order'] = $order;
         } else {
             $args['meta_key'] = Plugin::META_SCHEDULED_DATETIME;
-            $args['orderby'] = 'meta_value';
+            $args['orderby'] = 'meta_value_num';
             $args['order'] = $order;
         }
 
@@ -185,25 +185,29 @@ class SchedulesTable extends \WP_List_Table {
             return [];
         }
 
-        $from = '';
-        $to = '';
-        $now = current_time( 'timestamp', true );
+        $from = 0;
+        $to = 0;
+        $now = time();
 
         if ( $range === 'today' ) {
-            $from = gmdate( 'Y-m-d 00:00:00', $now );
-            $to = gmdate( 'Y-m-d 23:59:59', $now );
+            $timezone = wp_timezone();
+            $local_now = new \DateTimeImmutable( 'now', $timezone );
+            $start_local = $local_now->setTime( 0, 0, 0 );
+            $end_local = $local_now->setTime( 23, 59, 59 );
+            $from = $start_local->setTimezone( new \DateTimeZone( 'UTC' ) )->getTimestamp();
+            $to = $end_local->setTimezone( new \DateTimeZone( 'UTC' ) )->getTimestamp();
         } elseif ( $range === '7d' ) {
-            $from = gmdate( 'Y-m-d H:i:s', $now );
-            $to = gmdate( 'Y-m-d H:i:s', strtotime( '+7 days', $now ) );
+            $from = $now;
+            $to = strtotime( '+7 days', $now );
         } elseif ( $range === '30d' ) {
-            $from = gmdate( 'Y-m-d H:i:s', $now );
-            $to = gmdate( 'Y-m-d H:i:s', strtotime( '+30 days', $now ) );
+            $from = $now;
+            $to = strtotime( '+30 days', $now );
         } elseif ( $range === 'custom' ) {
-            $from = $this->local_date_to_utc( $this->active_filters['date_from'], false );
-            $to = $this->local_date_to_utc( $this->active_filters['date_to'], true );
+            $from = $this->local_date_to_timestamp_utc( $this->active_filters['date_from'], false );
+            $to = $this->local_date_to_timestamp_utc( $this->active_filters['date_to'], true );
         }
 
-        if ( $from === '' || $to === '' ) {
+        if ( $from <= 0 || $to <= 0 ) {
             return [];
         }
 
@@ -211,25 +215,25 @@ class SchedulesTable extends \WP_List_Table {
             'key' => Plugin::META_SCHEDULED_DATETIME,
             'value' => [ $from, $to ],
             'compare' => 'BETWEEN',
-            'type' => 'DATETIME',
+            'type' => 'NUMERIC',
         ];
     }
 
-    private function local_date_to_utc( string $date, bool $end_of_day ): string {
+    private function local_date_to_timestamp_utc( string $date, bool $end_of_day ): int {
         $date = trim( $date );
         if ( $date === '' ) {
-            return '';
+            return 0;
         }
 
         $time = $end_of_day ? '23:59:59' : '00:00:00';
         $timezone = wp_timezone();
         $dt = \DateTime::createFromFormat( 'Y-m-d H:i:s', $date . ' ' . $time, $timezone );
         if ( ! $dt ) {
-            return '';
+            return 0;
         }
 
         $dt->setTimezone( new \DateTimeZone( 'UTC' ) );
-        return $dt->format( 'Y-m-d H:i:s' );
+        return $dt->getTimestamp();
     }
 
     private function find_parent_ids_by_search( string $search ): array {

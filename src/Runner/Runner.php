@@ -5,6 +5,7 @@ namespace Sanar\WCProductScheduler\Runner;
 use Sanar\WCProductScheduler\Plugin;
 use Sanar\WCProductScheduler\Revision\RevisionManager;
 use Sanar\WCProductScheduler\Revision\RevisionTypeCompat;
+use Sanar\WCProductScheduler\Scheduler\Scheduler;
 use Sanar\WCProductScheduler\Util\Logger;
 
 class Runner {
@@ -13,7 +14,14 @@ class Runner {
 
     public static function run_due_now( int $limit = self::DEFAULT_BATCH_SIZE ): array {
         $limit = max( 1, $limit );
-        $revision_ids = self::find_due_revision_ids( $limit );
+        Scheduler::migrate_legacy_scheduled_meta_batch( Scheduler::MIGRATION_BATCH_SIZE * 2 );
+
+        $now = time();
+        $revision_ids = self::find_due_revision_ids( $limit, $now );
+        Logger::log_system_event( 'runner:start', [
+            'now' => $now,
+            'found' => count( $revision_ids ),
+        ] );
 
         $result = [
             'due' => count( $revision_ids ),
@@ -42,6 +50,9 @@ class Runner {
                 continue;
             }
         }
+
+        update_option( 'sanar_wcps_last_run_utc', gmdate( 'Y-m-d H:i:s' ), false );
+        update_option( 'sanar_wcps_last_run_count', (int) $result['processed'], false );
 
         return $result;
     }
@@ -123,13 +134,14 @@ class Runner {
 
     public static function list_scheduled( int $limit = self::DEFAULT_BATCH_SIZE ): array {
         $limit = max( 1, $limit );
+        Scheduler::migrate_legacy_scheduled_meta_batch( Scheduler::MIGRATION_BATCH_SIZE );
 
         $query = new \WP_Query( [
             'post_type' => RevisionTypeCompat::compatible_types(),
             'post_status' => 'any',
             'posts_per_page' => $limit,
             'fields' => 'ids',
-            'orderby' => 'meta_value',
+            'orderby' => 'meta_value_num',
             'order' => 'ASC',
             'meta_key' => Plugin::META_SCHEDULED_DATETIME,
             'meta_query' => [
@@ -137,6 +149,11 @@ class Runner {
                     'key' => Plugin::META_STATUS,
                     'value' => Plugin::STATUS_SCHEDULED,
                     'compare' => '=',
+                ],
+                [
+                    'key' => Plugin::META_SCHEDULED_DATETIME,
+                    'value' => '^[0-9]+$',
+                    'compare' => 'REGEXP',
                 ],
             ],
         ] );
@@ -148,10 +165,16 @@ class Runner {
         $rows = [];
         foreach ( $query->posts as $revision_id ) {
             $revision_id = (int) $revision_id;
+            $scheduled_raw = get_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME, true );
+            $scheduled_ts = Plugin::scheduled_timestamp_from_meta( $scheduled_raw );
+            $scheduled_utc = Plugin::scheduled_timestamp_to_utc( $scheduled_ts );
+            if ( $scheduled_utc === '' ) {
+                $scheduled_utc = (string) get_post_meta( $revision_id, Plugin::META_SCHEDULED_UTC, true );
+            }
             $rows[] = [
                 'revision_id' => $revision_id,
                 'product_id' => (int) get_post_meta( $revision_id, Plugin::META_PARENT_ID, true ),
-                'scheduled_utc' => (string) get_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME, true ),
+                'scheduled_utc' => $scheduled_utc,
                 'status' => (string) get_post_meta( $revision_id, Plugin::META_STATUS, true ),
             ];
         }
@@ -174,23 +197,24 @@ class Runner {
             return false;
         }
 
+        $timestamp = time();
+        $scheduled_utc = Plugin::scheduled_timestamp_to_utc( $timestamp );
         update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_SCHEDULED );
-        update_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME, gmdate( 'Y-m-d H:i:s' ) );
+        update_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME, $timestamp );
+        update_post_meta( $revision_id, Plugin::META_SCHEDULED_UTC, $scheduled_utc );
         delete_post_meta( $revision_id, Plugin::META_ERROR );
-        Logger::log_event( $revision_id, 'retry_scheduled', [ 'scheduled_utc' => gmdate( 'Y-m-d H:i:s' ) ] );
+        Logger::log_event( $revision_id, 'retry_scheduled', [ 'scheduled_utc' => $scheduled_utc ] );
 
         return true;
     }
 
-    private static function find_due_revision_ids( int $limit ): array {
-        $now_utc = gmdate( 'Y-m-d H:i:s' );
-
+    private static function find_due_revision_ids( int $limit, int $now ): array {
         $query = new \WP_Query( [
             'post_type' => RevisionTypeCompat::compatible_types(),
             'post_status' => 'any',
             'posts_per_page' => $limit,
             'fields' => 'ids',
-            'orderby' => 'meta_value',
+            'orderby' => 'meta_value_num',
             'order' => 'ASC',
             'meta_key' => Plugin::META_SCHEDULED_DATETIME,
             'meta_query' => [
@@ -201,9 +225,14 @@ class Runner {
                 ],
                 [
                     'key' => Plugin::META_SCHEDULED_DATETIME,
-                    'value' => $now_utc,
+                    'value' => '^[0-9]+$',
+                    'compare' => 'REGEXP',
+                ],
+                [
+                    'key' => Plugin::META_SCHEDULED_DATETIME,
+                    'value' => $now,
                     'compare' => '<=',
-                    'type' => 'DATETIME',
+                    'type' => 'NUMERIC',
                 ],
             ],
         ] );

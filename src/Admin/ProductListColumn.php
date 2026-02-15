@@ -51,17 +51,18 @@ class ProductListColumn {
             return;
         }
 
-        $scheduled_utc = (string) ( $next['scheduled_datetime'] ?? '' );
+        $scheduled_ts = (int) ( $next['scheduled_timestamp'] ?? 0 );
         $revision_id = (int) ( $next['revision_id'] ?? 0 );
-        if ( $scheduled_utc === '' ) {
+        if ( $scheduled_ts <= 0 ) {
             echo '&mdash;';
             return;
         }
 
-        $timestamp_utc = self::utc_to_timestamp( $scheduled_utc );
-        $local_label = $timestamp_utc !== null
-            ? wp_date( 'd/m/Y H:i', $timestamp_utc, wp_timezone() )
-            : $scheduled_utc;
+        $scheduled_utc = Plugin::scheduled_timestamp_to_utc( $scheduled_ts );
+        $local_label = Plugin::format_scheduled_local( $scheduled_ts, 'd/m/Y H:i' );
+        if ( $local_label === '' ) {
+            $local_label = $scheduled_utc;
+        }
 
         echo '<span title="' . esc_attr( 'UTC: ' . $scheduled_utc ) . '">';
         echo esc_html__( 'Agendado:', 'sanar-wc-product-scheduler' ) . ' ' . esc_html( $local_label );
@@ -69,7 +70,7 @@ class ProductListColumn {
 
         echo SchedulesPage::status_badge( Plugin::STATUS_SCHEDULED ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 
-        if ( $timestamp_utc !== null && $timestamp_utc <= current_time( 'timestamp', true ) ) {
+        if ( $scheduled_ts <= time() ) {
             echo ' ' . self::overdue_badge(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
         }
 
@@ -159,7 +160,7 @@ class ProductListColumn {
         $sql_next_by_parent = "
             SELECT
                 CAST(pm_parent.meta_value AS UNSIGNED) AS parent_id,
-                MIN(pm_scheduled.meta_value) AS scheduled_datetime
+                MIN(CAST(pm_scheduled.meta_value AS UNSIGNED)) AS scheduled_timestamp
             FROM {$wpdb->posts} p
             INNER JOIN {$wpdb->postmeta} pm_parent
                 ON pm_parent.post_id = p.ID
@@ -173,6 +174,7 @@ class ProductListColumn {
             WHERE p.post_type IN ($post_type_placeholders)
               AND p.post_status <> 'trash'
               AND pm_status.meta_value = %s
+              AND pm_scheduled.meta_value REGEXP '^[0-9]+$'
               AND CAST(pm_parent.meta_value AS UNSIGNED) IN ($product_placeholders)
             GROUP BY CAST(pm_parent.meta_value AS UNSIGNED)
         ";
@@ -209,8 +211,8 @@ class ProductListColumn {
                 continue;
             }
 
-            $scheduled = isset( $row['scheduled_datetime'] ) ? (string) $row['scheduled_datetime'] : '';
-            if ( $scheduled === '' ) {
+            $scheduled = isset( $row['scheduled_timestamp'] ) ? (int) $row['scheduled_timestamp'] : 0;
+            if ( $scheduled <= 0 ) {
                 continue;
             }
 
@@ -222,16 +224,16 @@ class ProductListColumn {
         }
 
         $next_parent_ids = array_keys( $next_by_parent );
-        $next_datetimes = array_values( array_unique( array_values( $next_by_parent ) ) );
+        $next_timestamps = array_values( array_unique( array_map( 'intval', array_values( $next_by_parent ) ) ) );
 
         $next_parent_placeholders = implode( ',', array_fill( 0, count( $next_parent_ids ), '%d' ) );
-        $next_datetime_placeholders = implode( ',', array_fill( 0, count( $next_datetimes ), '%s' ) );
+        $next_timestamp_placeholders = implode( ',', array_fill( 0, count( $next_timestamps ), '%d' ) );
 
         $sql_revision_ids = "
             SELECT
                 p.ID AS revision_id,
                 CAST(pm_parent.meta_value AS UNSIGNED) AS parent_id,
-                pm_scheduled.meta_value AS scheduled_datetime
+                CAST(pm_scheduled.meta_value AS UNSIGNED) AS scheduled_timestamp
             FROM {$wpdb->posts} p
             INNER JOIN {$wpdb->postmeta} pm_parent
                 ON pm_parent.post_id = p.ID
@@ -245,9 +247,10 @@ class ProductListColumn {
             WHERE p.post_type IN ($post_type_placeholders)
               AND p.post_status <> 'trash'
               AND pm_status.meta_value = %s
+              AND pm_scheduled.meta_value REGEXP '^[0-9]+$'
               AND CAST(pm_parent.meta_value AS UNSIGNED) IN ($next_parent_placeholders)
-              AND pm_scheduled.meta_value IN ($next_datetime_placeholders)
-            ORDER BY CAST(pm_parent.meta_value AS UNSIGNED) ASC, pm_scheduled.meta_value ASC, p.ID ASC
+              AND CAST(pm_scheduled.meta_value AS UNSIGNED) IN ($next_timestamp_placeholders)
+            ORDER BY CAST(pm_parent.meta_value AS UNSIGNED) ASC, CAST(pm_scheduled.meta_value AS UNSIGNED) ASC, p.ID ASC
         ";
 
         $revision_args = array_merge(
@@ -259,7 +262,7 @@ class ProductListColumn {
             $post_types,
             [ Plugin::STATUS_SCHEDULED ],
             $next_parent_ids,
-            $next_datetimes
+            $next_timestamps
         );
 
         $prepared_revision = $wpdb->prepare( $sql_revision_ids, $revision_args );
@@ -283,8 +286,8 @@ class ProductListColumn {
                 continue;
             }
 
-            $scheduled = isset( $row['scheduled_datetime'] ) ? (string) $row['scheduled_datetime'] : '';
-            if ( $scheduled === '' || ! isset( $next_by_parent[ $parent_id ] ) ) {
+            $scheduled = isset( $row['scheduled_timestamp'] ) ? (int) $row['scheduled_timestamp'] : 0;
+            if ( $scheduled <= 0 || ! isset( $next_by_parent[ $parent_id ] ) ) {
                 continue;
             }
 
@@ -293,7 +296,7 @@ class ProductListColumn {
             }
 
             $map[ $parent_id ] = [
-                'scheduled_datetime' => $scheduled,
+                'scheduled_timestamp' => $scheduled,
                 'revision_id' => isset( $row['revision_id'] ) ? (int) $row['revision_id'] : 0,
                 'status' => Plugin::STATUS_SCHEDULED,
             ];
@@ -313,20 +316,6 @@ class ProductListColumn {
 
         $edit_url = get_edit_post_link( $revision_id, '' );
         return is_string( $edit_url ) ? $edit_url : '';
-    }
-
-    private static function utc_to_timestamp( string $utc ): ?int {
-        $utc = trim( $utc );
-        if ( $utc === '' ) {
-            return null;
-        }
-
-        $dt = \DateTime::createFromFormat( 'Y-m-d H:i:s', $utc, new \DateTimeZone( 'UTC' ) );
-        if ( ! ( $dt instanceof \DateTime ) ) {
-            return null;
-        }
-
-        return $dt->getTimestamp();
     }
 
     private static function overdue_badge(): string {

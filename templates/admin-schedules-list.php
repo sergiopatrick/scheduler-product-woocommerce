@@ -6,6 +6,43 @@ if ( ! defined( 'ABSPATH' ) ) {
 <div class="wrap sanar-wcps-schedules-page">
     <h1><?php echo esc_html__( 'Agendamentos', 'sanar-wc-product-scheduler' ); ?></h1>
 
+    <?php if ( ! empty( $telemetry['cron_missing'] ) ) : ?>
+        <div class="notice notice-error">
+            <p><?php echo esc_html__( 'WP-Cron tick ausente: o evento sanar_wcps_tick nao esta agendado.', 'sanar-wc-product-scheduler' ); ?></p>
+        </div>
+    <?php endif; ?>
+
+    <?php if ( empty( $telemetry['cron_key_defined'] ) ) : ?>
+        <div class="notice notice-warning">
+            <p><?php echo esc_html__( 'Endpoint fallback bloqueado: defina SANAR_WCPS_CRON_KEY no wp-config.php.', 'sanar-wc-product-scheduler' ); ?></p>
+        </div>
+    <?php endif; ?>
+
+    <div class="notice notice-info sanar-wcps-runner-telemetry">
+        <p>
+            <strong><?php echo esc_html__( 'Ultima execucao do runner:', 'sanar-wc-product-scheduler' ); ?></strong>
+            <?php echo esc_html( $telemetry['last_run_local'] !== '' ? $telemetry['last_run_local'] : '-' ); ?>
+            <?php if ( $telemetry['last_run_utc'] !== '' ) : ?>
+                <small><?php echo esc_html( ' (UTC: ' . $telemetry['last_run_utc'] . ')' ); ?></small>
+            <?php endif; ?>
+        </p>
+        <p>
+            <strong><?php echo esc_html__( 'Processados na ultima execucao:', 'sanar-wc-product-scheduler' ); ?></strong>
+            <?php echo esc_html( (string) (int) $telemetry['last_run_count'] ); ?>
+        </p>
+        <p>
+            <strong><?php echo esc_html__( 'Proxima execucao do WP-Cron (tick):', 'sanar-wc-product-scheduler' ); ?></strong>
+            <?php echo esc_html( $telemetry['next_tick_local'] !== '' ? $telemetry['next_tick_local'] : '-' ); ?>
+            <?php if ( $telemetry['next_tick_utc'] !== '' ) : ?>
+                <small><?php echo esc_html( ' (UTC: ' . $telemetry['next_tick_utc'] . ')' ); ?></small>
+            <?php endif; ?>
+        </p>
+        <p>
+            <strong><?php echo esc_html__( 'URL fallback (mascarada):', 'sanar-wc-product-scheduler' ); ?></strong><br>
+            <code><?php echo esc_html( (string) $telemetry['fallback_url_masked'] ); ?></code>
+        </p>
+    </div>
+
     <form method="get" action="<?php echo esc_url( admin_url( 'admin.php' ) ); ?>">
         <input type="hidden" name="page" value="<?php echo esc_attr( \Sanar\WCProductScheduler\Admin\SchedulesPage::MENU_SLUG ); ?>">
 
