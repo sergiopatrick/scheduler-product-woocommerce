@@ -4,10 +4,9 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
     exit;
 }
 
-$revision_type = 'sanar_product_revision';
-
+$revision_types = [ 'sanar_product_revisi', 'sanar_product_revision' ];
 $revisions = get_posts( [
-    'post_type' => $revision_type,
+    'post_type' => $revision_types,
     'post_status' => 'any',
     'posts_per_page' => -1,
     'fields' => 'ids',

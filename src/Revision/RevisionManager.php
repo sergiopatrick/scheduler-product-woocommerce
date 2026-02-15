@@ -59,7 +59,8 @@ class RevisionManager {
 
         if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
             error_log(
-                '[SANAR_WCPS] create revision: post_type_exists=' . ( $cpt_registered ? 'true' : 'false' ) .
+                '[SANAR_WCPS] create revision: cpt=' . Plugin::CPT .
+                ' post_type_exists=' . ( $cpt_registered ? 'true' : 'false' ) .
                 ' did_init=' . (int) did_action( 'init' ) .
                 ' did_plugins_loaded=' . (int) did_action( 'plugins_loaded' )
             );

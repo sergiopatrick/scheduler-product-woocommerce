@@ -8,7 +8,9 @@ use Sanar\WCProductScheduler\Admin\SchedulesPage;
 use Sanar\WCProductScheduler\Revision\RevisionPostType;
 
 class Plugin {
-    public const CPT = 'sanar_product_revision';
+    // WordPress limita post_type a 20 caracteres.
+    public const CPT = 'sanar_product_revisi';
+    public const CPT_LEGACY = 'sanar_product_revision';
 
     public const META_PARENT_ID = '_sanar_wcps_parent_product_id';
     public const META_SCHEDULED_DATETIME = '_sanar_wcps_scheduled_datetime';

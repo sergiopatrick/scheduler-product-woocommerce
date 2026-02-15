@@ -6,7 +6,7 @@
   - Bootstrap e constantes centrais.
   - Carrega classes e assets do admin.
 - `RevisionPostType`
-  - Registra o CPT `sanar_product_revision` e seus metadados.
+  - Registra o CPT `sanar_product_revisi` e seus metadados.
 - `ProductMetaBox`
   - UI de agendamento dentro do box "Publicar/Atualizar".
   - Intercepta o salvamento para impedir vazamento no produto pai.
@@ -43,7 +43,7 @@
 
 ## Dados
 
-- CPT: `sanar_product_revision`
+- CPT: `sanar_product_revisi`
 - Metas principais:
   - `_sanar_wcps_parent_product_id`
   - `_sanar_wcps_scheduled_datetime` (UTC)

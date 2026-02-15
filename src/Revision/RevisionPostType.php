@@ -13,7 +13,7 @@ class RevisionPostType {
     public static function register(): void {
         static $registered = false;
 
-        if ( $registered ) {
+        if ( $registered && post_type_exists( Plugin::CPT ) ) {
             if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
                 error_log( '[SANAR_WCPS] CPT registered' );
             }
@@ -34,7 +34,7 @@ class RevisionPostType {
             'menu_name' => __( 'Revisoes de Produto', 'sanar-wc-product-scheduler' ),
         ];
 
-        register_post_type( Plugin::CPT, [
+        $result = register_post_type( Plugin::CPT, [
             'labels' => $labels,
             'public' => false,
             'show_ui' => true,
@@ -47,6 +47,22 @@ class RevisionPostType {
             'map_meta_cap' => true,
             'menu_position' => 56,
         ] );
+
+        if ( is_wp_error( $result ) ) {
+            if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                error_log( '[SANAR_WCPS] CPT register failed: ' . $result->get_error_message() );
+            }
+            $registered = false;
+            return;
+        }
+
+        if ( ! post_type_exists( Plugin::CPT ) ) {
+            if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                error_log( '[SANAR_WCPS] CPT register failed: post_type_exists=false' );
+            }
+            $registered = false;
+            return;
+        }
 
         $registered = true;
 
