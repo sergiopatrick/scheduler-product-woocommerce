@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: Sanar WC Product Scheduler
- * Description: Agenda atualizacoes completas de produtos WooCommerce via revisoes versionadas e WP-Cron.
+ * Description: Agenda atualizacoes completas de produtos WooCommerce via revisoes versionadas e runner WP-CLI.
  * Version: 0.1.0
  * Author: Sanar
  * Text Domain: sanar-wc-product-scheduler
@@ -23,8 +23,14 @@ require_once __DIR__ . '/src/Plugin.php';
 require_once __DIR__ . '/src/Revision/RevisionPostType.php';
 require_once __DIR__ . '/src/Revision/RevisionManager.php';
 require_once __DIR__ . '/src/Scheduler/Scheduler.php';
+require_once __DIR__ . '/src/Runner/Runner.php';
 require_once __DIR__ . '/src/Admin/ProductMetaBox.php';
 require_once __DIR__ . '/src/Util/Logger.php';
+
+if ( defined( 'WP_CLI' ) && WP_CLI ) {
+    require_once __DIR__ . '/src/Cli/Command.php';
+    \WP_CLI::add_command( 'sanar-wcps', \Sanar\WCProductScheduler\Cli\Command::class );
+}
 
 add_action( 'init', function (): void {
     if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {

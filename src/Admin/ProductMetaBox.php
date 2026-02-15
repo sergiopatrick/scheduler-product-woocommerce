@@ -5,7 +5,6 @@ namespace Sanar\WCProductScheduler\Admin;
 use Sanar\WCProductScheduler\Plugin;
 use Sanar\WCProductScheduler\Revision\RevisionManager;
 use Sanar\WCProductScheduler\Revision\RevisionPostType;
-use Sanar\WCProductScheduler\Scheduler\Scheduler;
 use Sanar\WCProductScheduler\Util\Logger;
 
 class ProductMetaBox {
@@ -412,15 +411,6 @@ class ProductMetaBox {
             update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_DRAFT );
             Logger::log_event( $revision_id, 'schedule_conflict', [ 'scheduled_utc' => $utc['utc'] ] );
             self::set_notice( $post_id, 'schedule_conflict' );
-            return;
-        }
-
-        $scheduled = Scheduler::schedule_revision( $revision_id, $utc['timestamp'] );
-        if ( ! $scheduled ) {
-            update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_FAILED );
-            Logger::set_error( $revision_id, 'Falha ao agendar evento WP-Cron.' );
-            Logger::log_event( $revision_id, 'failed', [ 'error' => 'Falha ao agendar evento WP-Cron.' ] );
-            self::set_notice( $post_id, 'schedule_failed', 'Falha ao agendar evento WP-Cron.' );
             return;
         }
 

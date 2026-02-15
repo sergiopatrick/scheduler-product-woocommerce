@@ -14,12 +14,12 @@
   - Lista de revisoes, colunas, filtros e acoes.
 - `RevisionManager`
   - Clonagem, snapshot, aplicacao e validacoes.
-- `Scheduler`
-  - Agenda e publica revisoes via WP-Cron (one-shot).
+- `Runner`
+  - Processa revisoes vencidas via comando WP-CLI.
+- `Command` (WP-CLI)
+  - Subcomandos `run --due-now`, `list --scheduled`, `retry <revision_id>`.
 - `Logger`
   - Registra eventos no postmeta da revisao.
-- `Lock`
-  - Lock por `product_id` para evitar corrida.
 
 ## Templates e Assets
 
@@ -31,10 +31,10 @@
 
 1. Usuario define uma data/hora futura no box "Publicar" e clica em "Atualizar".
 2. `wp_insert_post_data` reverte `post_title/post_content/post_excerpt` para os valores atuais e captura um snapshot completo do produto pai.
-3. `save_post_product` cria a revisao com o payload do POST, restaura o produto pai (campos + meta + taxonomias) e so entao agenda o evento.
+3. `save_post_product` cria a revisao com o payload do POST, restaura o produto pai (campos + meta + taxonomias) e marca a revisao como `scheduled`.
 4. A revisao recebe status `scheduled` e o horario em UTC.
-5. WP-Cron executa `sanar_wcps_publish_revision` no horario.
-6. `RevisionManager` valida, aplica atualizacao atomica e marca `published`.
+5. Cron de servidor executa `wp sanar-wcps run --due-now`.
+6. O runner seleciona revisoes vencidas, aplica lock por `product_id`, chama `RevisionManager::apply_revision()` e marca `published`.
 7. Hooks internos disparam para cache e integracoes.
 
 ## Dados
@@ -55,7 +55,7 @@
 - Snapshot do produto antes da aplicacao
 - Reversao em caso de erro
 - Lock por `product_id` para evitar corrida
-  - Lock armazenado em options com TTL de 10 minutos
+  - Lock armazenado em options com TTL de 120 segundos
 
 ## Reverter pai + salvar revisao
 
@@ -63,17 +63,18 @@
 - `wp_insert_post_data` força os campos do post pai a permanecerem iguais ao banco.
 - A revisao e criada a partir do payload do POST.
 - Em seguida, o produto pai e restaurado integralmente (campos, metas e taxonomias).
-- Somente depois disso o agendamento e criado via WP-Cron.
+- Somente depois disso a revisao fica com status `scheduled` para o runner externo.
 
 ## Dependencias
 
 - WordPress + WooCommerce.
-- WP-Cron habilitado ou cron de servidor chamando `wp-cron.php`.
+- WP-CLI disponivel no servidor.
+- Cron de servidor executando `wp sanar-wcps run --due-now`.
 
-## Confiabilidade do WP-Cron
+## Execucao em Producao
 
-- Para maior confiabilidade, recomendamos definir `DISABLE_WP_CRON=true` no `wp-config.php`.
-- Crie um cron de servidor chamando `wp-cron.php` a cada 1 minuto.
+- Exemplo:
+  - `* * * * * wp --path=/var/www/site sanar-wcps run --due-now >/dev/null 2>&1`
 
 ## Limitacoes (v1)
 

@@ -2,43 +2,35 @@
 
 namespace Sanar\WCProductScheduler\Scheduler;
 
-use Sanar\WCProductScheduler\Revision\RevisionManager;
 use Sanar\WCProductScheduler\Plugin;
+use Sanar\WCProductScheduler\Util\Logger;
 
 class Scheduler {
     public static function init(): void {
-        add_action( Plugin::ACTION_PUBLISH, [ __CLASS__, 'handle_publish' ], 10, 1 );
+        // Deprecated: kept only for backward compatibility.
     }
 
     public static function schedule_revision( int $revision_id, int $timestamp ): bool {
-        $existing = wp_next_scheduled( Plugin::ACTION_PUBLISH, [ $revision_id ] );
-        if ( $existing ) {
-            if ( (int) $existing === $timestamp ) {
-                return true;
-            }
-            wp_unschedule_event( $existing, Plugin::ACTION_PUBLISH, [ $revision_id ] );
+        if ( $revision_id <= 0 ) {
+            return false;
         }
 
-        return (bool) wp_schedule_single_event( $timestamp, Plugin::ACTION_PUBLISH, [ $revision_id ] );
+        update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_SCHEDULED );
+        update_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME, gmdate( 'Y-m-d H:i:s', $timestamp ) );
+        Logger::log_event( $revision_id, 'scheduled', [ 'scheduled_utc' => gmdate( 'Y-m-d H:i:s', $timestamp ) ] );
+        return true;
     }
 
     public static function clear_scheduled_revision( int $revision_id ): void {
-        $timestamp = wp_next_scheduled( Plugin::ACTION_PUBLISH, [ $revision_id ] );
-        if ( $timestamp ) {
-            wp_unschedule_event( $timestamp, Plugin::ACTION_PUBLISH, [ $revision_id ] );
-        }
-
-        if ( function_exists( 'wp_clear_scheduled_hook' ) ) {
-            wp_clear_scheduled_hook( Plugin::ACTION_PUBLISH, [ $revision_id ] );
-        }
-    }
-
-    public static function handle_publish( int $revision_id ): void {
-        $revision_id = (int) $revision_id;
         if ( $revision_id <= 0 ) {
             return;
         }
 
-        RevisionManager::apply_revision_to_product( $revision_id );
+        update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_CANCELLED );
+        delete_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME );
+    }
+
+    public static function handle_publish( int $revision_id ): void {
+        // Deprecated: publication now runs only through WP-CLI runner.
     }
 }

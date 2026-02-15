@@ -4,7 +4,6 @@ namespace Sanar\WCProductScheduler\Admin;
 
 use Sanar\WCProductScheduler\Plugin;
 use Sanar\WCProductScheduler\Revision\RevisionManager;
-use Sanar\WCProductScheduler\Scheduler\Scheduler;
 use Sanar\WCProductScheduler\Util\Logger;
 
 class RevisionAdmin {
@@ -214,11 +213,6 @@ class RevisionAdmin {
                 exit;
             }
 
-            Scheduler::clear_scheduled_revision( $revision_id );
-            $scheduled = Scheduler::schedule_revision( $revision_id, $utc['timestamp'] );
-            if ( ! $scheduled ) {
-                throw new \Exception( 'Falha ao agendar evento WP-Cron.' );
-            }
             update_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME, $utc['utc'] );
             update_post_meta( $revision_id, Plugin::META_TIMEZONE, $utc['timezone'] );
             update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_SCHEDULED );
@@ -248,12 +242,6 @@ class RevisionAdmin {
             wp_die( 'Nonce invalida.' );
         }
 
-        Scheduler::clear_scheduled_revision( $revision_id );
-        $scheduled = Scheduler::schedule_revision( $revision_id, time() + 1 );
-        if ( ! $scheduled ) {
-            wp_redirect( add_query_arg( 'sanar_wcps_notice', 'schedule_failed', wp_get_referer() ) );
-            exit;
-        }
         update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_SCHEDULED );
         update_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME, gmdate( 'Y-m-d H:i:s' ) );
         update_post_meta( $revision_id, Plugin::META_TIMEZONE, wp_timezone_string() );
@@ -274,8 +262,6 @@ class RevisionAdmin {
         if ( ! $revision_id || ! wp_verify_nonce( $nonce, 'sanar_wcps_revision_action_' . $revision_id ) ) {
             wp_die( 'Nonce invalida.' );
         }
-
-        Scheduler::clear_scheduled_revision( $revision_id );
 
         update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_CANCELLED );
         delete_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME );

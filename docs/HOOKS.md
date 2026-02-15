@@ -4,9 +4,6 @@ Use estes hooks para integracoes (cache, notificacoes, observabilidade).
 
 ## Actions
 
-- `sanar_wcps_publish_revision( int $revision_id )`
-  - Hook do WP-Cron para publicar a revisao agendada.
-
 - `sanar_wcps_after_publish( int $product_id, int $revision_id )`
   - Disparado apos a revisao ser aplicada com sucesso.
 

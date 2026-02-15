@@ -9,23 +9,22 @@ License: Proprietary
 
 == Description ==
 
-Agende atualizacoes completas em produtos WooCommerce usando revisoes versionadas e WP-Cron.
+Agende atualizacoes completas em produtos WooCommerce usando revisoes versionadas e runner WP-CLI.
 
 == Installation ==
 
 1. Envie o arquivo ZIP pelo painel em Plugins > Adicionar novo > Enviar plugin.
 2. Ative o plugin.
 3. Garanta que WooCommerce esteja ativo.
-4. Recomenda-se configurar cron de servidor:
-   - Defina DISABLE_WP_CRON=true no wp-config.php.
-   - Agende chamada de wp-cron.php a cada 1 minuto.
+4. Configure cron de servidor para executar o runner:
+   - Agende: wp --path=/var/www/site sanar-wcps run --due-now >/dev/null 2>&1
 
 == Usage ==
 
 1. Abra um produto simples no admin.
 2. Nao e necessario salvar o produto.
 3. No box "Agendar atualizacao", selecione data/hora e confirme.
-4. A revisao sera publicada automaticamente no horario via WP-Cron.
+4. A revisao sera publicada quando o runner WP-CLI processar os itens vencidos.
 
 == Limitations ==
 

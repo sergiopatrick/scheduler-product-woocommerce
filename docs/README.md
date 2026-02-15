@@ -1,17 +1,16 @@
-# WP-Cron e Cron de Servidor
+# Runner WP-CLI e Cron de Servidor
 
-Para evitar atrasos no agendamento, recomendamos usar cron de servidor em vez do WP-Cron interno.
+Este plugin processa revisoes agendadas apenas via runner WP-CLI.
 
 ## Passos
 
-1. No `wp-config.php`, defina:
-   - `define('DISABLE_WP_CRON', true);`
-2. Configure um cron no servidor para chamar `wp-cron.php` a cada 1 minuto.
+1. Garanta que `wp` (WP-CLI) esteja instalado no servidor.
+2. Configure um cron no servidor para chamar o runner a cada 1 minuto.
 
 ## Exemplo de cron (Linux)
 
 ```
-* * * * * /usr/bin/php /caminho/para/site/wp-cron.php > /dev/null 2>&1
+* * * * * wp --path=/var/www/site sanar-wcps run --due-now >/dev/null 2>&1
 ```
 
-Atenção: ajuste o caminho do PHP e do `wp-cron.php` conforme o seu servidor.
+Atencao: ajuste o caminho do `wp` e o `--path` conforme o seu servidor.

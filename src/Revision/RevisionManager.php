@@ -2,9 +2,7 @@
 
 namespace Sanar\WCProductScheduler\Revision;
 
-use Exception;
 use Sanar\WCProductScheduler\Plugin;
-use Sanar\WCProductScheduler\Util\Lock;
 use Sanar\WCProductScheduler\Util\Logger;
 
 class RevisionManager {
@@ -140,7 +138,7 @@ class RevisionManager {
         update_post_meta( $revision_id, Plugin::META_TAXONOMIES, $snapshot );
     }
 
-    public static function apply_revision_to_product( int $revision_id ): bool {
+    public static function apply_revision( int $revision_id ): bool {
         if ( self::$is_processing ) {
             Logger::log_system_event( 'reentrancy_blocked', [ 'revision_id' => $revision_id ] );
             return false;
@@ -155,6 +153,13 @@ class RevisionManager {
         }
 
         $product_id = (int) get_post_meta( $revision_id, Plugin::META_PARENT_ID, true );
+        if ( $product_id <= 0 ) {
+            Logger::log_event( $revision_id, 'failed', [ 'reason' => 'parent_meta_missing' ] );
+            update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_FAILED );
+            Logger::set_error( $revision_id, 'parent_product_id invalido.' );
+            return false;
+        }
+
         $product = get_post( $product_id );
 
         if ( ! $product || $product->post_type !== 'product' ) {
@@ -164,18 +169,11 @@ class RevisionManager {
             return false;
         }
 
-        $lock = Lock::acquire( $product_id );
-        if ( ! $lock ) {
-            Logger::log_event( $revision_id, 'failed', [ 'reason' => 'lock_busy' ] );
-            update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_FAILED );
-            Logger::set_error( $revision_id, 'Lock ocupado.' );
-            return false;
-        }
-
-        $backup = self::snapshot_product( $product_id );
-
+        $backup = null;
         self::$is_processing = true;
         try {
+            $backup = self::snapshot_product( $product_id );
+
             $update = [
                 'ID' => $product_id,
                 'post_title' => $revision->post_title,
@@ -185,7 +183,7 @@ class RevisionManager {
 
             $result = wp_update_post( $update, true );
             if ( is_wp_error( $result ) ) {
-                throw new Exception( $result->get_error_message() );
+                throw new \RuntimeException( $result->get_error_message() );
             }
 
             self::replace_meta( $product_id, $revision_id );
@@ -197,20 +195,31 @@ class RevisionManager {
             update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_PUBLISHED );
             delete_post_meta( $revision_id, Plugin::META_ERROR );
 
-            Logger::log_event( $revision_id, 'published', [ 'product_id' => $product_id ] );
-
-            Lock::release( $product_id );
-            self::$is_processing = false;
+            Logger::log_event( $revision_id, 'published', [
+                'product_id' => $product_id,
+                'published_utc' => gmdate( 'Y-m-d H:i:s' ),
+            ] );
             return true;
-        } catch ( Exception $e ) {
-            self::restore_snapshot( $product_id, $backup );
+        } catch ( \Throwable $e ) {
+            if ( is_array( $backup ) ) {
+                self::restore_snapshot( $product_id, $backup );
+            }
+
             update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_FAILED );
-            Logger::set_error( $revision_id, $e->getMessage() );
-            Logger::log_event( $revision_id, 'failed', [ 'error' => $e->getMessage() ] );
-            Lock::release( $product_id );
-            self::$is_processing = false;
+            $error_message = self::format_exception_message( $e );
+            Logger::set_error( $revision_id, $error_message );
+            Logger::log_event( $revision_id, 'failed', [
+                'error' => $error_message,
+                'stack' => self::summarize_stack_trace( $e ),
+            ] );
             return false;
+        } finally {
+            self::$is_processing = false;
         }
+    }
+
+    public static function apply_revision_to_product( int $revision_id ): bool {
+        return self::apply_revision( $revision_id );
     }
 
     public static function replace_meta( int $product_id, int $revision_id ): void {
@@ -253,7 +262,7 @@ class RevisionManager {
         foreach ( $snapshot as $taxonomy => $term_ids ) {
             $result = wp_set_object_terms( $product_id, $term_ids, $taxonomy, false );
             if ( is_wp_error( $result ) ) {
-                throw new Exception( $result->get_error_message() );
+                throw new \RuntimeException( $result->get_error_message() );
             }
         }
     }
@@ -472,5 +481,20 @@ class RevisionManager {
         }
 
         update_post_meta( $revision_id, Plugin::META_TAXONOMIES, $snapshot );
+    }
+
+    private static function summarize_stack_trace( \Throwable $throwable ): array {
+        $trace_lines = explode( "\n", $throwable->getTraceAsString() );
+        $trace_lines = array_slice( $trace_lines, 0, 5 );
+        return array_values( array_filter( $trace_lines, 'is_string' ) );
+    }
+
+    private static function format_exception_message( \Throwable $throwable ): string {
+        $message = trim( $throwable->getMessage() );
+        if ( $message === '' ) {
+            $message = 'Erro desconhecido ao aplicar revisao.';
+        }
+
+        return $throwable->getFile() . ':' . $throwable->getLine() . ' - ' . $message;
     }
 }

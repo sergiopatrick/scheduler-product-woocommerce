@@ -1,23 +1,22 @@
 # Sanar WC Product Scheduler
 
-Plugin interno para agendar atualizacoes completas em produtos WooCommerce usando revisoes versionadas e WP-Cron.
+Plugin interno para agendar atualizacoes completas em produtos WooCommerce usando revisoes versionadas e runner WP-CLI.
 
 ## Instalacao
 
 1. Envie o ZIP pelo painel em **Plugins > Adicionar novo > Enviar plugin**.
 2. Ative o plugin.
 3. Garanta que WooCommerce esteja ativo.
-4. Configure cron de servidor (recomendado):
-   - Defina `DISABLE_WP_CRON=true` no `wp-config.php`.
-   - Agende chamada de `wp-cron.php` a cada 1 minuto.
+4. Configure cron de servidor para rodar o runner:
+   - `* * * * * wp --path=/var/www/site sanar-wcps run --due-now >/dev/null 2>&1`
 
 ## Como usar
 
 1. Abra um produto simples no admin.
 2. Nao e necessario salvar o produto.
 3. No box **Agendar atualizacao**, escolha a data/hora e clique **Agendar atualizacao**.
-4. Uma revisao sera criada e agendada.
-5. Na data/hora, o WP-Cron publicara a revisao automaticamente.
+4. Uma revisao sera criada com status `scheduled`.
+5. A publicacao acontece quando o runner for executado no servidor.
 
 ### Revisoes
 
@@ -27,10 +26,18 @@ Acesse **WooCommerce > Revisoes de Produto** para listar revisoes, ver o produto
 - Cancelar
 - Editar revisao
 
-## Scheduler
+## Runner WP-CLI
 
-O agendamento usa WP-Cron com eventos one-shot. Para maior confiabilidade, use cron de servidor e desative o WP-Cron interno.
-Veja `docs/README.md`.
+Comandos:
+
+- `wp sanar-wcps run --due-now`
+  - Processa revisoes `scheduled` vencidas (`scheduled_datetime <= agora UTC`) em lotes.
+- `wp sanar-wcps list --scheduled`
+  - Lista revisoes com status `scheduled`.
+- `wp sanar-wcps retry <revision_id>`
+  - Reagenda uma revisao para execucao imediata no proximo runner.
+
+Este plugin **nao usa WP-Cron nem Action Scheduler** para publicar revisoes.
 
 ## Logs
 
@@ -60,10 +67,10 @@ Executar em ambiente WordPress com WooCommerce ativo.
 - Produto publicado:
   - Alterar preco + campo ACF sem clicar em **Atualizar**
   - Clicar em **Agendar atualizacao**
-  - Verificar: produto pai nao mudou, revisao criada, evento WP-Cron agendado
+  - Verificar: produto pai nao mudou, revisao criada com status `scheduled`
 - Execucao:
-  - Aguardar horario ou forcar execucao via `wp-cron.php`
+  - Aguardar horario e executar `wp sanar-wcps run --due-now`
   - Verificar: produto pai atualizado, revisao marcada como `published`, sem atualizacao parcial
 - Erro controlado:
-  - Simular falha de `wp_insert_post`
+  - Simular excecao durante aplicacao da revisao
   - Verificar: admin_notice com mensagem real e log registrado
