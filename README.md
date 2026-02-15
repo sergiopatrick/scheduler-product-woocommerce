@@ -33,6 +33,8 @@ Acesse **WooCommerce > Agendamentos** para gerenciar todos os agendamentos em um
 - Filtros por status, intervalo e busca por produto/ID
 - Acoes por item: Ver, Cancelar, Reagendar e Executar agora
 - Tela de detalhes com log completo e erro completo
+- Compatibilidade com revisoes legadas: ao abrir a tela, o plugin migra em lote para o CPT canonico
+- Revisoes orfas aparecem com alerta **ORPHAN** e execucao bloqueada ate corrigir o vinculo
 
 ## Runner WP-CLI
 

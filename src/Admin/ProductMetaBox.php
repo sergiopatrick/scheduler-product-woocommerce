@@ -5,6 +5,7 @@ namespace Sanar\WCProductScheduler\Admin;
 use Sanar\WCProductScheduler\Plugin;
 use Sanar\WCProductScheduler\Revision\RevisionManager;
 use Sanar\WCProductScheduler\Revision\RevisionPostType;
+use Sanar\WCProductScheduler\Revision\RevisionTypeCompat;
 use Sanar\WCProductScheduler\Util\Logger;
 
 class ProductMetaBox {
@@ -380,18 +381,27 @@ class ProductMetaBox {
         self::restore_parent_state( $post_id );
 
         if ( is_wp_error( $revision_id ) ) {
-            $error_message = $revision_id->get_error_message();
-            RevisionManager::persist_last_error(
-                'process_schedule:create_failed code=' . $revision_id->get_error_code() .
-                ' message=' . $error_message .
-                ' product_id=' . $post_id
-            );
-            Logger::log_system_event( 'revision_create_failed', [
-                'product_id' => $post_id,
-                'error' => $error_message,
+            self::fail_schedule( $post_id, 'process_schedule:create_failed', $revision_id->get_error_message(), [
+                'code' => $revision_id->get_error_code(),
             ] );
+            return;
+        }
 
-            self::set_notice( $post_id, 'create_failed', $error_message );
+        $revision_id = (int) $revision_id;
+        if ( $revision_id <= 0 ) {
+            self::fail_schedule( $post_id, 'process_schedule:create_failed', 'ID de revisao invalido retornado na criacao.' );
+            return;
+        }
+
+        $revision = get_post( $revision_id );
+        if ( ! RevisionTypeCompat::is_compatible_revision_post( $revision ) ) {
+            self::fail_schedule( $post_id, 'process_schedule:create_failed', 'Revisao criada com post_type inesperado.' );
+            return;
+        }
+
+        $stored_parent_id = (int) get_post_meta( $revision_id, Plugin::META_PARENT_ID, true );
+        if ( $stored_parent_id !== $post_id ) {
+            self::fail_schedule( $post_id, 'process_schedule:create_failed', 'Revisao criada sem parent_product_id valido.' );
             return;
         }
 
@@ -406,10 +416,53 @@ class ProductMetaBox {
         update_post_meta( $revision_id, Plugin::META_TIMEZONE, $utc['timezone'] );
         update_post_meta( $revision_id, Plugin::META_STATUS, Plugin::STATUS_SCHEDULED );
 
+        $stored_status = (string) get_post_meta( $revision_id, Plugin::META_STATUS, true );
+        $stored_scheduled = (string) get_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME, true );
+        $stored_parent_id = (int) get_post_meta( $revision_id, Plugin::META_PARENT_ID, true );
+
+        if ( $stored_parent_id !== $post_id || $stored_status !== Plugin::STATUS_SCHEDULED || $stored_scheduled !== $utc['utc'] ) {
+            self::fail_schedule(
+                $post_id,
+                'process_schedule:integrity_failed',
+                'Revisao criada, mas metadados obrigatorios nao persistiram corretamente.',
+                [
+                    'revision_id' => $revision_id,
+                    'parent' => $stored_parent_id,
+                    'status' => $stored_status,
+                    'scheduled' => $stored_scheduled,
+                    'expected_scheduled' => $utc['utc'],
+                ]
+            );
+            return;
+        }
+
         Logger::log_event( $revision_id, 'scheduled', [ 'scheduled_utc' => $utc['utc'] ] );
 
         $scheduled_local = Plugin::format_site_datetime( $utc['utc'] );
         self::set_notice( $post_id, 'scheduled', '', $scheduled_local );
+    }
+
+    private static function fail_schedule( int $post_id, string $context, string $error_message, array $extra_context = [] ): void {
+        $error_message = trim( $error_message );
+        if ( $error_message === '' ) {
+            $error_message = 'Falha desconhecida ao criar agendamento.';
+        }
+
+        $parts = [ $context, 'product_id=' . $post_id, 'message=' . $error_message ];
+        foreach ( $extra_context as $key => $value ) {
+            $parts[] = $key . '=' . wp_json_encode( $value );
+        }
+
+        $log_line = implode( ' ', $parts );
+        RevisionManager::persist_last_error( $log_line );
+        Logger::log_system_event( 'revision_create_failed', [
+            'product_id' => $post_id,
+            'error' => $error_message,
+            'context' => $context,
+            'extra' => $extra_context,
+        ] );
+
+        self::set_notice( $post_id, 'create_failed', $error_message );
     }
 
     private static function set_notice( int $post_id, string $notice, string $error_detail = '', string $scheduled = '' ): void {
@@ -431,7 +484,7 @@ class ProductMetaBox {
 
     private static function get_next_scheduled_revision( int $product_id ): ?array {
         $query = new \WP_Query( [
-            'post_type' => Plugin::CPT,
+            'post_type' => RevisionTypeCompat::compatible_types(),
             'post_status' => 'any',
             'posts_per_page' => 1,
             'fields' => 'ids',

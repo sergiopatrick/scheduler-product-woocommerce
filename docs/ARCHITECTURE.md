@@ -18,6 +18,10 @@
   - Tabela baseada em `WP_List_Table` com filtros, busca e paginacao.
 - `RevisionManager`
   - Clonagem, snapshot, aplicacao e validacoes.
+- `RevisionTypeCompat`
+  - Centraliza tipos de revisao compativeis (canonico + legados).
+- `RevisionMigration`
+  - Migra revisoes legadas para o tipo canonico em lotes (on-demand no admin).
 - `Runner`
   - Processa revisoes vencidas via comando WP-CLI.
 - `Command` (WP-CLI)
@@ -60,6 +64,7 @@
 - Reversao em caso de erro
 - Lock por `product_id` para evitar corrida
   - Lock armazenado em options com TTL de 120 segundos
+- Normalizacao de post_type legado para canonico durante execucao do runner
 
 ## Reverter pai + salvar revisao
 

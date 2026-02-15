@@ -4,6 +4,8 @@ namespace Sanar\WCProductScheduler\Admin;
 
 use Sanar\WCProductScheduler\Plugin;
 use Sanar\WCProductScheduler\Revision\RevisionManager;
+use Sanar\WCProductScheduler\Revision\RevisionMigration;
+use Sanar\WCProductScheduler\Revision\RevisionTypeCompat;
 use Sanar\WCProductScheduler\Runner\Runner;
 use Sanar\WCProductScheduler\Util\Logger;
 
@@ -83,7 +85,11 @@ class SchedulesPage {
             return;
         }
 
-        $parent_id = (int) get_post_meta( $revision_id, Plugin::META_PARENT_ID, true );
+        $parent_id = self::resolve_parent_id( $revision_id );
+        if ( $parent_id <= 0 ) {
+            self::redirect_with_notice( 'reschedule_failed', [ self::NOTICE_MESSAGE_KEY => 'Revisao orfa: parent_product_id ausente.' ], $revision_id );
+        }
+
         if ( $parent_id > 0 && RevisionManager::has_schedule_conflict( $parent_id, $utc['utc'], $revision_id ) ) {
             self::redirect_with_notice( 'reschedule_failed', [ self::NOTICE_MESSAGE_KEY => 'Ja existe revisao agendada para esse horario.' ], $revision_id );
         }
@@ -102,6 +108,11 @@ class SchedulesPage {
 
         $revision_id = self::get_request_revision_id();
         self::assert_action_nonce( 'run_now', $revision_id );
+
+        $parent_id = self::resolve_parent_id( $revision_id );
+        if ( $parent_id <= 0 ) {
+            self::redirect_with_notice( 'run_failed', [ self::NOTICE_MESSAGE_KEY => 'Revisao orfa: parent_product_id ausente.' ], $revision_id );
+        }
 
         $result = Runner::run_revision( $revision_id );
         $notice = 'run_failed';
@@ -188,11 +199,12 @@ class SchedulesPage {
 
     public static function build_revision_data( int $revision_id ): ?array {
         $revision = get_post( $revision_id );
-        if ( ! $revision || $revision->post_type !== Plugin::CPT ) {
+        if ( ! RevisionTypeCompat::is_compatible_revision_post( $revision ) ) {
             return null;
         }
 
-        $parent_id = (int) get_post_meta( $revision_id, Plugin::META_PARENT_ID, true );
+        $parent_id = self::resolve_parent_id( $revision_id );
+
         $status = (string) get_post_meta( $revision_id, Plugin::META_STATUS, true );
         $scheduled_utc = (string) get_post_meta( $revision_id, Plugin::META_SCHEDULED_DATETIME, true );
         $timezone = (string) get_post_meta( $revision_id, Plugin::META_TIMEZONE, true );
@@ -206,16 +218,33 @@ class SchedulesPage {
         }
 
         $created_user = $created_by > 0 ? get_user_by( 'id', $created_by ) : null;
-        $product_title = $parent_id > 0 ? get_the_title( $parent_id ) : '';
-        $product_title = $product_title !== '' ? $product_title : '#'.$parent_id;
+        $product_post = $parent_id > 0 ? get_post( $parent_id ) : null;
+        $is_orphan = ! ( $product_post && $product_post->post_type === 'product' );
+        $integrity_message = '';
+
+        if ( $is_orphan ) {
+            $integrity_message = 'Revisao orfa: parent_product_id invalido ou ausente.';
+        } elseif ( $scheduled_utc === '' && $status === Plugin::STATUS_SCHEDULED ) {
+            $integrity_message = 'Revisao scheduled sem data agendada.';
+        }
+
+        $product_title = '';
+        if ( $product_post && $product_post->post_type === 'product' ) {
+            $product_title = get_the_title( $parent_id );
+        }
+
+        if ( $product_title === '' ) {
+            $product_title = $parent_id > 0 ? '#' . $parent_id : 'Produto nao vinculado';
+        }
 
         return [
             'revision_id' => $revision_id,
             'revision_title' => $revision->post_title,
+            'origin_post_type' => $revision->post_type,
             'parent_id' => $parent_id,
             'product_title' => $product_title,
-            'product_edit_url' => $parent_id > 0 ? get_edit_post_link( $parent_id ) : '',
-            'product_view_url' => $parent_id > 0 ? get_permalink( $parent_id ) : '',
+            'product_edit_url' => ( $product_post && $product_post->post_type === 'product' ) ? get_edit_post_link( $parent_id ) : '',
+            'product_view_url' => ( $product_post && $product_post->post_type === 'product' ) ? get_permalink( $parent_id ) : '',
             'status' => $status !== '' ? $status : Plugin::STATUS_DRAFT,
             'scheduled_utc' => $scheduled_utc,
             'scheduled_local' => self::format_utc_to_local( $scheduled_utc ),
@@ -227,6 +256,8 @@ class SchedulesPage {
             'published_at_utc' => $published_utc,
             'published_at_local' => self::format_utc_to_local( $published_utc ),
             'error' => $error,
+            'is_orphan' => $is_orphan,
+            'integrity_message' => $integrity_message,
             'log' => self::get_log_entries( $revision_id ),
         ];
     }
@@ -254,16 +285,25 @@ class SchedulesPage {
         return $status === Plugin::STATUS_SCHEDULED;
     }
 
-    public static function can_run_now( string $status ): bool {
+    public static function can_run_now( string $status, bool $is_orphan = false ): bool {
+        if ( $is_orphan ) {
+            return false;
+        }
+
         return in_array( $status, [ Plugin::STATUS_SCHEDULED, Plugin::STATUS_FAILED ], true );
     }
 
-    public static function can_reschedule( string $status ): bool {
+    public static function can_reschedule( string $status, bool $is_orphan = false ): bool {
+        if ( $is_orphan ) {
+            return false;
+        }
+
         return $status !== Plugin::STATUS_PUBLISHED;
     }
 
     private static function render_list_page(): void {
         require_once SANAR_WCPS_PATH . 'src/Admin/SchedulesTable.php';
+        RevisionMigration::run_on_demand_once_per_request();
 
         $table = new SchedulesTable();
         $table->prepare_items();
@@ -462,8 +502,33 @@ class SchedulesPage {
         }
 
         $revision = get_post( $revision_id );
-        if ( ! $revision || $revision->post_type !== Plugin::CPT ) {
+        if ( ! RevisionTypeCompat::is_compatible_revision_post( $revision ) ) {
             wp_die( 'Revisao invalida.' );
         }
+    }
+
+    private static function resolve_parent_id( int $revision_id ): int {
+        $parent_id = (int) get_post_meta( $revision_id, Plugin::META_PARENT_ID, true );
+        if ( $parent_id > 0 ) {
+            return $parent_id;
+        }
+
+        $revision = get_post( $revision_id );
+        if ( ! RevisionTypeCompat::is_compatible_revision_post( $revision ) ) {
+            return 0;
+        }
+
+        $fallback_parent_id = (int) $revision->post_parent;
+        if ( $fallback_parent_id <= 0 ) {
+            return 0;
+        }
+
+        $fallback_parent = get_post( $fallback_parent_id );
+        if ( ! $fallback_parent || $fallback_parent->post_type !== 'product' ) {
+            return 0;
+        }
+
+        update_post_meta( $revision_id, Plugin::META_PARENT_ID, $fallback_parent_id );
+        return $fallback_parent_id;
     }
 }

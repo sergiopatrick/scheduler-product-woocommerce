@@ -7,6 +7,7 @@ use Sanar\WCProductScheduler\Admin\RevisionAdmin;
 use Sanar\WCProductScheduler\Admin\AdminStatusBox;
 use Sanar\WCProductScheduler\Admin\SchedulesPage;
 use Sanar\WCProductScheduler\Revision\RevisionPostType;
+use Sanar\WCProductScheduler\Revision\RevisionTypeCompat;
 
 class Plugin {
     // WordPress limita post_type a 20 caracteres.
@@ -69,7 +70,7 @@ class Plugin {
             return;
         }
 
-        $allowed = [ 'product', self::CPT ];
+        $allowed = array_merge( [ 'product' ], RevisionTypeCompat::compatible_types() );
         if ( ! in_array( $screen->post_type, $allowed, true ) ) {
             return;
         }

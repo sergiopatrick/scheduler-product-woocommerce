@@ -5,9 +5,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 $revision_id = (int) $revision['revision_id'];
 $status = (string) $revision['status'];
+$is_orphan = ! empty( $revision['is_orphan'] );
+$integrity_message = isset( $revision['integrity_message'] ) ? trim( (string) $revision['integrity_message'] ) : '';
+$integrity_label = $is_orphan ? 'ORPHAN' : 'INTEGRITY';
 $can_cancel = \Sanar\WCProductScheduler\Admin\SchedulesPage::can_cancel( $status );
-$can_run_now = \Sanar\WCProductScheduler\Admin\SchedulesPage::can_run_now( $status );
-$can_reschedule = \Sanar\WCProductScheduler\Admin\SchedulesPage::can_reschedule( $status );
+$can_run_now = \Sanar\WCProductScheduler\Admin\SchedulesPage::can_run_now( $status, $is_orphan );
+$can_reschedule = \Sanar\WCProductScheduler\Admin\SchedulesPage::can_reschedule( $status, $is_orphan );
 ?>
 <div class="wrap sanar-wcps-schedules-page sanar-wcps-schedules-detail">
     <h1>
@@ -17,6 +20,17 @@ $can_reschedule = \Sanar\WCProductScheduler\Admin\SchedulesPage::can_reschedule(
     <p>
         <a href="<?php echo esc_url( \Sanar\WCProductScheduler\Admin\SchedulesPage::list_url() ); ?>">&larr; <?php echo esc_html__( 'Voltar para lista', 'sanar-wc-product-scheduler' ); ?></a>
     </p>
+
+    <?php if ( $is_orphan || $integrity_message !== '' ) : ?>
+        <div class="notice notice-warning sanar-wcps-integrity-notice">
+            <p>
+                <strong><?php echo esc_html( $integrity_label ); ?></strong>
+                <?php if ( $integrity_message !== '' ) : ?>
+                    - <?php echo esc_html( $integrity_message ); ?>
+                <?php endif; ?>
+            </p>
+        </div>
+    <?php endif; ?>
 
     <table class="widefat striped sanar-wcps-detail-table">
         <tbody>
@@ -36,6 +50,10 @@ $can_reschedule = \Sanar\WCProductScheduler\Admin\SchedulesPage::can_reschedule(
             <tr>
                 <th><?php echo esc_html__( 'Status', 'sanar-wc-product-scheduler' ); ?></th>
                 <td><?php echo \Sanar\WCProductScheduler\Admin\SchedulesPage::status_badge( (string) $revision['status'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?></td>
+            </tr>
+            <tr>
+                <th><?php echo esc_html__( 'Post Type de origem', 'sanar-wc-product-scheduler' ); ?></th>
+                <td><code><?php echo esc_html( (string) ( $revision['origin_post_type'] ?? '' ) ); ?></code></td>
             </tr>
             <tr>
                 <th><?php echo esc_html__( 'Agendado (local)', 'sanar-wc-product-scheduler' ); ?></th>
@@ -85,6 +103,8 @@ $can_reschedule = \Sanar\WCProductScheduler\Admin\SchedulesPage::can_reschedule(
 
         <?php if ( $can_run_now ) : ?>
             <a class="button button-primary" href="<?php echo esc_url( \Sanar\WCProductScheduler\Admin\SchedulesPage::action_url( 'run_now', $revision_id ) ); ?>"><?php echo esc_html__( 'Executar agora', 'sanar-wc-product-scheduler' ); ?></a>
+        <?php elseif ( $is_orphan ) : ?>
+            <span class="description">ORPHAN: execucao bloqueada ate corrigir vinculo do produto pai.</span>
         <?php endif; ?>
     </div>
 

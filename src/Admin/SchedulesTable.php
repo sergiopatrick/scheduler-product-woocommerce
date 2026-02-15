@@ -3,6 +3,7 @@
 namespace Sanar\WCProductScheduler\Admin;
 
 use Sanar\WCProductScheduler\Plugin;
+use Sanar\WCProductScheduler\Revision\RevisionTypeCompat;
 
 if ( ! class_exists( '\WP_List_Table' ) ) {
     require_once ABSPATH . 'wp-admin/includes/class-wp-list-table.php';
@@ -134,7 +135,7 @@ class SchedulesTable extends \WP_List_Table {
         $search_parent_ids = $this->find_parent_ids_by_search( $this->active_filters['search'] );
         if ( $search_parent_ids === [] && $this->active_filters['search'] !== '' ) {
             return [
-                'post_type' => Plugin::CPT,
+                'post_type' => RevisionTypeCompat::compatible_types(),
                 'post_status' => 'any',
                 'posts_per_page' => $this->active_filters['per_page'],
                 'paged' => max( 1, $this->get_pagenum() ),
@@ -153,7 +154,7 @@ class SchedulesTable extends \WP_List_Table {
         }
 
         $args = [
-            'post_type' => Plugin::CPT,
+            'post_type' => RevisionTypeCompat::compatible_types(),
             'post_status' => 'any',
             'posts_per_page' => $this->active_filters['per_page'],
             'paged' => max( 1, $this->get_pagenum() ),
@@ -259,6 +260,7 @@ class SchedulesTable extends \WP_List_Table {
     private function column_product( array $item ): string {
         $title = esc_html( (string) $item['product_title'] );
         $parent_id = (int) $item['parent_id'];
+        $is_orphan = ! empty( $item['is_orphan'] );
         $links = [];
 
         if ( ! empty( $item['product_edit_url'] ) ) {
@@ -273,7 +275,13 @@ class SchedulesTable extends \WP_List_Table {
             $links_html = '<div class="row-actions"><span>' . implode( ' | ', $links ) . '</span></div>';
         }
 
-        return '<strong>' . $title . '</strong><br><small>#' . esc_html( (string) $parent_id ) . '</small>' . $links_html;
+        $orphan_html = '';
+        if ( $is_orphan ) {
+            $orphan_html = '<br><span class="sanar-wcps-integrity-badge">ORPHAN</span>';
+        }
+
+        $parent_label = $parent_id > 0 ? '#' . $parent_id : '-';
+        return '<strong>' . $title . '</strong><br><small>' . esc_html( (string) $parent_label ) . '</small>' . $orphan_html . $links_html;
     }
 
     private function column_scheduled( array $item ): string {
@@ -329,6 +337,11 @@ class SchedulesTable extends \WP_List_Table {
     }
 
     private function column_error( array $item ): string {
+        $integrity = trim( (string) ( $item['integrity_message'] ?? '' ) );
+        if ( $integrity !== '' ) {
+            return '<span title="' . esc_attr( $integrity ) . '">' . esc_html( SchedulesPage::short_error( $integrity ) ) . '</span>';
+        }
+
         if ( (string) $item['status'] !== Plugin::STATUS_FAILED ) {
             return '-';
         }
@@ -345,6 +358,7 @@ class SchedulesTable extends \WP_List_Table {
     private function column_actions( array $item ): string {
         $revision_id = (int) $item['revision_id'];
         $status = (string) $item['status'];
+        $is_orphan = ! empty( $item['is_orphan'] );
         $actions = [];
 
         $actions[] = '<a class="button button-small" href="' . esc_url( SchedulesPage::detail_url( $revision_id ) ) . '">' . esc_html__( 'Ver', 'sanar-wc-product-scheduler' ) . '</a>';
@@ -353,12 +367,14 @@ class SchedulesTable extends \WP_List_Table {
             $actions[] = '<a class="button button-small" href="' . esc_url( SchedulesPage::action_url( 'cancel', $revision_id ) ) . '">' . esc_html__( 'Cancelar', 'sanar-wc-product-scheduler' ) . '</a>';
         }
 
-        if ( SchedulesPage::can_reschedule( $status ) ) {
+        if ( SchedulesPage::can_reschedule( $status, $is_orphan ) ) {
             $actions[] = '<a class="button button-small" href="' . esc_url( SchedulesPage::detail_url( $revision_id ) . '#sanar-wcps-reschedule' ) . '">' . esc_html__( 'Reagendar', 'sanar-wc-product-scheduler' ) . '</a>';
         }
 
-        if ( SchedulesPage::can_run_now( $status ) ) {
+        if ( SchedulesPage::can_run_now( $status, $is_orphan ) ) {
             $actions[] = '<a class="button button-small button-primary" href="' . esc_url( SchedulesPage::action_url( 'run_now', $revision_id ) ) . '">' . esc_html__( 'Executar agora', 'sanar-wc-product-scheduler' ) . '</a>';
+        } elseif ( $is_orphan ) {
+            $actions[] = '<span class="description">ORPHAN</span>';
         }
 
         return implode( ' ', $actions );

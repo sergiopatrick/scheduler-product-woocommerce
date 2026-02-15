@@ -4,6 +4,7 @@ namespace Sanar\WCProductScheduler\Runner;
 
 use Sanar\WCProductScheduler\Plugin;
 use Sanar\WCProductScheduler\Revision\RevisionManager;
+use Sanar\WCProductScheduler\Revision\RevisionTypeCompat;
 use Sanar\WCProductScheduler\Util\Logger;
 
 class Runner {
@@ -58,9 +59,16 @@ class Runner {
         }
 
         $revision = get_post( $revision_id );
-        if ( ! $revision || $revision->post_type !== Plugin::CPT ) {
+        if ( ! RevisionTypeCompat::is_compatible_revision_post( $revision ) ) {
             $result['message'] = 'Revisao nao encontrada.';
             self::mark_failed( $revision_id, $result['message'], [ 'reason' => 'revision_not_found' ] );
+            return $result;
+        }
+
+        $revision = self::normalize_to_canonical( $revision );
+        if ( ! ( $revision instanceof \WP_Post ) || $revision->post_type !== Plugin::CPT ) {
+            $result['message'] = 'Falha ao normalizar post_type da revisao para o tipo canonico.';
+            self::mark_failed( $revision_id, $result['message'], [ 'reason' => 'canonical_normalization_failed' ] );
             return $result;
         }
 
@@ -117,7 +125,7 @@ class Runner {
         $limit = max( 1, $limit );
 
         $query = new \WP_Query( [
-            'post_type' => Plugin::CPT,
+            'post_type' => RevisionTypeCompat::compatible_types(),
             'post_status' => 'any',
             'posts_per_page' => $limit,
             'fields' => 'ids',
@@ -157,7 +165,12 @@ class Runner {
         }
 
         $revision = get_post( $revision_id );
-        if ( ! $revision || $revision->post_type !== Plugin::CPT ) {
+        if ( ! RevisionTypeCompat::is_compatible_revision_post( $revision ) ) {
+            return false;
+        }
+
+        $revision = self::normalize_to_canonical( $revision );
+        if ( ! ( $revision instanceof \WP_Post ) || $revision->post_type !== Plugin::CPT ) {
             return false;
         }
 
@@ -173,7 +186,7 @@ class Runner {
         $now_utc = gmdate( 'Y-m-d H:i:s' );
 
         $query = new \WP_Query( [
-            'post_type' => Plugin::CPT,
+            'post_type' => RevisionTypeCompat::compatible_types(),
             'post_status' => 'any',
             'posts_per_page' => $limit,
             'fields' => 'ids',
@@ -200,6 +213,38 @@ class Runner {
         }
 
         return array_map( 'intval', $query->posts );
+    }
+
+    private static function normalize_to_canonical( \WP_Post $revision ): ?\WP_Post {
+        if ( $revision->post_type === Plugin::CPT ) {
+            return $revision;
+        }
+
+        if ( ! RevisionTypeCompat::is_compatible_post_type( $revision->post_type ) ) {
+            return null;
+        }
+
+        global $wpdb;
+        $updated = $wpdb->update(
+            $wpdb->posts,
+            [ 'post_type' => Plugin::CPT ],
+            [ 'ID' => $revision->ID ],
+            [ '%s' ],
+            [ '%d' ]
+        );
+
+        if ( $updated === false ) {
+            return null;
+        }
+
+        clean_post_cache( $revision->ID );
+        Logger::log_event( (int) $revision->ID, 'runner_normalized_post_type', [
+            'from' => $revision->post_type,
+            'to' => Plugin::CPT,
+        ] );
+
+        $normalized = get_post( $revision->ID );
+        return $normalized instanceof \WP_Post ? $normalized : null;
     }
 
     private static function acquire_product_lock( int $product_id ): bool {

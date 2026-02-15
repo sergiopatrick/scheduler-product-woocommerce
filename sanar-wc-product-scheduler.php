@@ -30,6 +30,8 @@ define( 'SANAR_WCPS_VERSION', '0.1.0' );
 require_once __DIR__ . '/src/Plugin.php';
 require_once __DIR__ . '/src/Revision/RevisionPostType.php';
 require_once __DIR__ . '/src/Revision/RevisionManager.php';
+require_once __DIR__ . '/src/Revision/RevisionTypeCompat.php';
+require_once __DIR__ . '/src/Revision/RevisionMigration.php';
 require_once __DIR__ . '/src/Scheduler/Scheduler.php';
 require_once __DIR__ . '/src/Runner/Runner.php';
 require_once __DIR__ . '/src/Admin/ProductMetaBox.php';

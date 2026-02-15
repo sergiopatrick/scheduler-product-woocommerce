@@ -4,7 +4,7 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
     exit;
 }
 
-$revision_types = [ 'sanar_product_revisi', 'sanar_product_revision' ];
+$revision_types = [ 'sanar_product_revisi', 'sanar_product_revision', 'sanar_product_revisio' ];
 $revisions = get_posts( [
     'post_type' => $revision_types,
     'post_status' => 'any',
@@ -18,3 +18,5 @@ foreach ( $revisions as $revision_id ) {
 
 global $wpdb;
 $wpdb->query( "DELETE FROM {$wpdb->options} WHERE option_name LIKE 'sanar_wcps_lock_%'" );
+delete_option( 'sanar_wcps_last_error' );
+delete_option( 'sanar_wcps_migration_state' );
