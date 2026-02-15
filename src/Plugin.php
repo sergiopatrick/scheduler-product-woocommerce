@@ -3,6 +3,7 @@
 namespace Sanar\WCProductScheduler;
 
 use Sanar\WCProductScheduler\Admin\ProductMetaBox;
+use Sanar\WCProductScheduler\Admin\ProductListColumn;
 use Sanar\WCProductScheduler\Admin\RevisionAdmin;
 use Sanar\WCProductScheduler\Admin\AdminStatusBox;
 use Sanar\WCProductScheduler\Admin\SchedulesPage;
@@ -40,6 +41,7 @@ class Plugin {
         add_action( 'init', [ RevisionPostType::class, 'register_meta' ], 5 );
 
         ProductMetaBox::init();
+        ProductListColumn::init();
         AdminStatusBox::init();
 
         RevisionAdmin::init();
@@ -52,6 +54,7 @@ class Plugin {
     private static function includes(): void {
         require_once SANAR_WCPS_PATH . 'src/Admin/RevisionAdmin.php';
         require_once SANAR_WCPS_PATH . 'src/Admin/SchedulesPage.php';
+        require_once SANAR_WCPS_PATH . 'src/Admin/ProductListColumn.php';
     }
 
     public static function enqueue_assets( string $hook ): void {

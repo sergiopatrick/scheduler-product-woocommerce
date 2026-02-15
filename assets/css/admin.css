@@ -56,6 +56,12 @@
     color: #7a4b00;
 }
 
+.sanar-wcps-status-overdue {
+    background: #fdeeee;
+    border-color: #d63638;
+    color: #8a2424;
+}
+
 .sanar-wcps-status-published {
     background: #ecf8ec;
     border-color: #50b167;
